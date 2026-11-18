@@ -175,11 +175,12 @@ kbd { font-size: 11px; color: var(--gray); margin-left: auto; padding-left: 16px
   .controls .check { font-size: 13px; }
 }
 @media (max-width: 1080px) {
-  /* rail drops under the field */
-  .workspace { grid-template-columns: minmax(340px, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 220px); }
-  .col-code { grid-row: span 2; }
-  .col-rail { display: grid; grid-template-columns: 200px 1fr; grid-template-rows: auto 1fr; gap: 6px 10px; }
-  .col-rail .tiles { grid-row: span 2; align-content: start; }
+  /* rail drops under the CODE column so the field keeps the full height */
+  .workspace { grid-template-columns: minmax(320px, 1fr) minmax(0, 1.15fr); grid-template-rows: minmax(0, 1fr) minmax(0, 210px); }
+  .col-code { grid-column: 1; grid-row: 1; }
+  .col-field { grid-column: 2; grid-row: 1 / span 2; }
+  .col-rail { grid-column: 1; grid-row: 2; display: grid; grid-template-columns: 180px 1fr; grid-template-rows: auto 1fr; gap: 6px 10px; }
+  .col-rail .tiles { grid-row: span 2; align-content: start; overflow: auto; }
   .brand-name { display: none; }
 }
 @media (max-width: 760px) {

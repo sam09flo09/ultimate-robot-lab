@@ -93,6 +93,8 @@ export interface LevelEditorOptions {
   world: World;            // edited in a deep copy
   onChange: (w: World) => void;
   onTest: (w: World) => void; // "Test this level" button
+  /** Hosted inside the app shell, which supplies its own Save / Test buttons: hide the editor's. */
+  embedded?: boolean;
 }
 export interface LevelEditor {
   getWorld(): World;

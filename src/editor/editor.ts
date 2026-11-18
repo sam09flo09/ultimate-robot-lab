@@ -142,9 +142,8 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
     h("div", { class: "le-sep" }),
     h("div", { class: "le-group" }, btnSnap, selSnap),
     h("div", { class: "le-spacer" }),
-    h("div", { class: "le-group" }, btnNew, btnOpen, btnSave, fileInput),
-    h("div", { class: "le-sep" }),
-    btnTest);
+    h("div", { class: "le-group" }, btnNew, btnOpen, ...(opts.embedded ? [] : [btnSave]), fileInput),
+    ...(opts.embedded ? [] : [h("div", { class: "le-sep" }), btnTest]));
 
   const rail = h("div", { class: "le-rail", role: "toolbar", "aria-label": "Tools", "aria-orientation": "vertical" });
   const toolBtns = new Map<Tool, HTMLButtonElement>();

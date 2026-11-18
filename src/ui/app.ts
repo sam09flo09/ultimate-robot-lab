@@ -742,7 +742,7 @@ export function startApp(): void {
     if (!levelEditor) {
       const start = readLevelDraft() ?? deepCopy(customWorld ?? { ...world, id: "custom" });
       try {
-        levelEditor = createLevelEditor($("teacherHost"), { world: start, onChange: (w) => saveDraft(w), onTest: (w) => testLevel(w) });
+        levelEditor = createLevelEditor($("teacherHost"), { world: start, embedded: true, onChange: (w) => saveDraft(w), onTest: (w) => testLevel(w) });
       } catch (e) {
         console.error(e);
         $("teacherHost").textContent = "The challenge maker couldn't start. Reload the page and try again.";
