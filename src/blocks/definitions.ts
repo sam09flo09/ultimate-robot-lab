@@ -1,0 +1,104 @@
+// Custom Robot Lab block definitions (Blockly JSON format).
+// Every custom block's Python is defined in ./generator.ts and must match docs/API.md.
+import * as Blockly from "blockly";
+
+export const HAT_TYPE = "robot_when_started";
+
+type Opt = [string, string];
+const DIR_FR: Opt[] = [["forward", "FORWARD"], ["reverse", "REVERSE"]];
+const DIR_LR: Opt[] = [["right", "RIGHT"], ["left", "LEFT"]];
+const DIST_UNITS: Opt[] = [["mm", "MM"], ["inches", "INCHES"]];
+const TIME_UNITS: Opt[] = [["seconds", "SECONDS"], ["msec", "MSEC"]];
+const EYES: Opt[] = [["front", "front_eye"], ["down", "down_eye"]];
+export const COLOURS: Opt[] = [
+  ["red", "RED"], ["green", "GREEN"], ["blue", "BLUE"], ["yellow", "YELLOW"], ["orange", "ORANGE"],
+  ["purple", "PURPLE"], ["white", "WHITE"], ["black", "BLACK"], ["none", "NONE"],
+];
+const PEN_COLOURS: Opt[] = COLOURS.filter(([, v]) => v !== "NONE");
+
+const dd = (name: string, options: Opt[]) => ({ type: "field_dropdown", name, options });
+const num = (name: string) => ({ type: "input_value", name, check: "Number" });
+const bool = (name: string) => ({ type: "input_value", name, check: "Boolean" });
+const any = (name: string) => ({ type: "input_value", name });
+const stmt = (name: string) => ({ type: "input_statement", name });
+const waitBox = { type: "field_checkbox", name: "WAIT", checked: true };
+
+const STMT = { previousStatement: null, nextStatement: null, inputsInline: true };
+const NUM_OUT = { output: "Number" };
+const BOOL_OUT = { output: "Boolean" };
+
+export const BLOCK_DEFS: Record<string, unknown>[] = [
+  // ------------------------------------------------------------ start
+  {
+    type: HAT_TYPE, message0: "when started %1 %2",
+    args0: [{ type: "input_dummy" }, stmt("DO")],
+    style: "rl_start", tooltip: "Your program starts here. Snap blocks underneath.",
+  },
+  // ------------------------------------------------------------ drivetrain
+  { type: "robot_drive_for", message0: "drive %1 for %2 %3 %4 wait", args0: [dd("DIR", DIR_FR), num("DIST"), dd("UNITS", DIST_UNITS), waitBox], ...STMT, style: "rl_drive", tooltip: "Drive a set distance. Untick 'wait' to keep going with the next block straight away." },
+  { type: "robot_turn_for", message0: "turn %1 for %2 degrees %3 wait", args0: [dd("DIR", DIR_LR), num("ANGLE"), waitBox], ...STMT, style: "rl_drive", tooltip: "Turn on the spot by an angle." },
+  { type: "robot_turn_to_heading", message0: "turn to heading %1 degrees %2 wait", args0: [num("ANGLE"), waitBox], ...STMT, style: "rl_drive", tooltip: "Turn the shortest way to face a compass heading (0 = where you started)." },
+  { type: "robot_drive", message0: "drive %1", args0: [dd("DIR", DIR_FR)], ...STMT, style: "rl_drive", tooltip: "Start driving and keep going until stopped." },
+  { type: "robot_turn", message0: "turn %1", args0: [dd("DIR", DIR_LR)], ...STMT, style: "rl_drive", tooltip: "Start turning and keep going until stopped." },
+  { type: "robot_stop", message0: "stop driving", ...STMT, style: "rl_drive", tooltip: "Stop all motion." },
+  { type: "robot_set_velocity", message0: "set %1 velocity to %2 %%", args0: [dd("KIND", [["drive", "drive"], ["turn", "turn"]]), num("VALUE")], ...STMT, style: "rl_drive", tooltip: "Speed from 1 to 100 percent (50 to start with)." },
+  { type: "robot_set_heading", message0: "set heading to %1 degrees", args0: [num("ANGLE")], ...STMT, style: "rl_drive", tooltip: "Tell the robot which way it is facing now." },
+  { type: "robot_heading", message0: "heading in degrees", ...NUM_OUT, style: "rl_drive", tooltip: "Compass heading, 0 to 359." },
+  { type: "robot_rotation", message0: "rotation in degrees", ...NUM_OUT, style: "rl_drive", tooltip: "Total amount turned (can go past 360 or below 0)." },
+  { type: "robot_is_done", message0: "drive is done?", ...BOOL_OUT, style: "rl_drive", tooltip: "True when the robot has finished moving." },
+  // ------------------------------------------------------------ sensing
+  { type: "robot_distance", message0: "distance in %1", args0: [dd("UNITS", DIST_UNITS)], ...NUM_OUT, style: "rl_sensing", tooltip: "Distance to the nearest thing ahead (3000 mm if nothing)." },
+  { type: "robot_distance_found", message0: "distance sensor found object?", ...BOOL_OUT, style: "rl_sensing", tooltip: "True if something is within 1000 mm ahead." },
+  { type: "robot_front_near", message0: "front eye near object?", ...BOOL_OUT, style: "rl_sensing", tooltip: "True if something is within 100 mm ahead." },
+  { type: "robot_eye_detect", message0: "%1 eye detects %2 ?", args0: [dd("EYE", EYES), dd("COLOR", COLOURS)], ...BOOL_OUT, style: "rl_sensing", tooltip: "True if the eye sees that colour." },
+  { type: "robot_eye_color", message0: "%1 eye colour", args0: [dd("EYE", EYES)], output: "String", style: "rl_sensing", tooltip: "The colour the eye sees. Compare it with a colour block." },
+  { type: "robot_eye_brightness", message0: "%1 eye brightness in %%", args0: [dd("EYE", EYES)], ...NUM_OUT, style: "rl_sensing", tooltip: "Brightness from 0 to 100." },
+  { type: "robot_color_value", message0: "%1", args0: [dd("COLOR", COLOURS)], output: "String", style: "rl_sensing", tooltip: "A colour, to compare with an eye's colour." },
+  { type: "robot_bumper", message0: "bumper pressed?", ...BOOL_OUT, style: "rl_sensing", tooltip: "True while the bumper is touching something." },
+  { type: "robot_position", message0: "position %1 in mm", args0: [dd("AXIS", [["X", "X"], ["Y", "Y"]])], ...NUM_OUT, style: "rl_sensing", tooltip: "Where the robot is on the playground." },
+  { type: "robot_timer", message0: "timer in %1", args0: [dd("UNITS", TIME_UNITS)], ...NUM_OUT, style: "rl_sensing", tooltip: "Time since the start (or the last reset)." },
+  { type: "robot_reset_timer", message0: "reset timer", ...STMT, style: "rl_sensing", tooltip: "Set the timer back to 0." },
+  // ------------------------------------------------------------ pen
+  { type: "robot_pen_move", message0: "move pen %1", args0: [dd("POS", [["down", "DOWN"], ["up", "UP"]])], ...STMT, style: "rl_pen", tooltip: "Pen down draws a line as the robot drives." },
+  { type: "robot_pen_color", message0: "set pen colour to %1", args0: [dd("COLOR", PEN_COLOURS)], ...STMT, style: "rl_pen", tooltip: "Change the pen's colour." },
+  // ------------------------------------------------------------ magnet
+  { type: "robot_magnet", message0: "magnet %1", args0: [dd("MODE", [["pick up", "BOOST"], ["drop", "DROP"]])], ...STMT, style: "rl_magnet", tooltip: "Pick up the object just in front, or drop it." },
+  // ------------------------------------------------------------ looks
+  { type: "robot_screen_print", message0: "print %1 on screen", args0: [any("VALUE")], ...STMT, style: "rl_looks", tooltip: "Show text or a number on the robot's screen." },
+  { type: "robot_screen_newline", message0: "screen new line", ...STMT, style: "rl_looks", tooltip: "Move to the next line on the screen." },
+  { type: "robot_screen_clear", message0: "clear screen", ...STMT, style: "rl_looks", tooltip: "Wipe the robot's screen." },
+  { type: "robot_print_log", message0: "print %1 to log", args0: [any("VALUE")], ...STMT, style: "rl_looks", tooltip: "Write to the step log." },
+  // ------------------------------------------------------------ control
+  { type: "robot_wait", message0: "wait %1 %2", args0: [num("TIME"), dd("UNITS", TIME_UNITS)], ...STMT, style: "rl_control", tooltip: "Pause before the next block." },
+  { type: "robot_repeat", message0: "repeat %1 times %2 %3", args0: [num("TIMES"), { type: "input_dummy" }, stmt("DO")], previousStatement: null, nextStatement: null, style: "rl_control", tooltip: "Run the blocks inside a number of times." },
+  { type: "robot_forever", message0: "forever %1 %2", args0: [{ type: "input_dummy" }, stmt("DO")], previousStatement: null, style: "rl_control", tooltip: "Run the blocks inside again and again." },
+  { type: "robot_if", message0: "if %1 then %2 %3", args0: [bool("COND"), { type: "input_dummy" }, stmt("DO")], previousStatement: null, nextStatement: null, style: "rl_control", tooltip: "Run the blocks inside only if the condition is true." },
+  { type: "robot_if_else", message0: "if %1 then %2 %3 else %4 %5", args0: [bool("COND"), { type: "input_dummy" }, stmt("DO"), { type: "input_dummy" }, stmt("ELSE")], previousStatement: null, nextStatement: null, style: "rl_control", tooltip: "Run one group of blocks or the other." },
+  { type: "robot_wait_until", message0: "wait until %1", args0: [bool("COND")], ...STMT, style: "rl_control", tooltip: "Pause until the condition becomes true." },
+  { type: "robot_repeat_until", message0: "repeat until %1 %2 %3", args0: [bool("COND"), { type: "input_dummy" }, stmt("DO")], previousStatement: null, nextStatement: null, style: "rl_control", tooltip: "Keep running the blocks inside until the condition is true." },
+  { type: "robot_break", message0: "break out of loop", previousStatement: null, style: "rl_control", tooltip: "Leave the loop this block is in." },
+];
+
+export const CUSTOM_TYPES = BLOCK_DEFS.map((d) => d.type as string);
+
+let registered = false;
+/** Registers all custom blocks with Blockly. Safe to call many times. */
+export function registerBlocks(): void {
+  if (registered) return;
+  registered = true;
+  Blockly.common.defineBlocksWithJsonArray(BLOCK_DEFS.filter((d) => d.type !== HAT_TYPE));
+  // Number and text values get a neutral look, so they read as "slots" in any block.
+  for (const t of ["math_number", "text"]) {
+    const base = Blockly.Blocks[t];
+    if (!base || (base as { __rl?: boolean }).__rl) continue;
+    const init = base.init;
+    Blockly.Blocks[t] = { ...base, __rl: true, init(this: Blockly.Block) { init.call(this); this.setStyle("rl_value"); } };
+  }
+  const hatJson = BLOCK_DEFS.find((d) => d.type === HAT_TYPE)!;
+  Blockly.Blocks[HAT_TYPE] = {
+    init(this: Blockly.Block) {
+      this.jsonInit(hatJson);
+      this.setDeletable(false);
+    },
+  };
+}

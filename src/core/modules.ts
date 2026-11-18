@@ -18,7 +18,8 @@ export interface RenderOptions {
   showPath: boolean;
   showSensors: boolean;     // draw distance ray etc.
   showZones: boolean;       // outline goal zones
-  /** Optional overlay for the level editor: id of selected item to highlight. */
+  /** Optional overlay for the level editor: id of selected item to highlight.
+   *  The special value "start" outlines the robot start pose. */
   selectedId?: string | null;
 }
 export interface Renderer {
@@ -28,8 +29,11 @@ export interface Renderer {
   toWorld(px: number, py: number): { x: number; y: number };
   /** Inverse of toWorld. */
   toCanvas(x: number, y: number): { px: number; py: number };
-  /** Call after the canvas element is resized. Handles devicePixelRatio. */
+  /** Call after the canvas element is resized. Handles devicePixelRatio.
+   *  The canvas must be sized by CSS (e.g. width/height 100% of its box). */
   resize(): void;
+  /** Rebuild the cached static layer (call after editing a world object in place). */
+  invalidate(): void;
 }
 
 // ---------------------------------------------------------------- python runtime

@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Robot Lab</title>
+  <meta name="description" content="Program a virtual robot with blocks or Python. Runs entirely in your browser.">
+  <meta name="theme-color" content="#0C0B0A">
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="./icons/icon-192.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <!-- Skulpt (Python in the browser). Classic scripts: they define the global `Sk`. -->
+  <script src="./vendor/skulpt.bundle.js"></script>
+  <script src="./vendor/skulpt-stdlib.js"></script>
+</head>
+<body>
+  <a class="skip" href="#runBtn">Skip to Run</a>
+  <div id="app" class="app" data-mode="blocks">
+    <header class="topbar">
+      <div class="brand" aria-label="Robot Lab">
+        <img src="./icons/icon.svg" alt="" width="30" height="30">
+        <span class="brand-name">Robot Lab</span>
+      </div>
+      <label class="proj-name">
+        <span class="sr-only">Project name</span>
+        <input id="projName" type="text" maxlength="60" value="My robot project" autocomplete="off" spellcheck="false">
+      </label>
+
+      <div class="picker">
+        <button id="worldBtn" class="btn btn-select" aria-haspopup="true" title="Choose a playground">
+          <span class="k">Playground</span><span id="worldName" class="v">…</span>
+        </button>
+        <div id="worldMenu" class="pop pop-worlds" role="menu" aria-label="Playgrounds" hidden></div>
+      </div>
+
+      <div class="seg" role="radiogroup" aria-label="Coding mode">
+        <button id="modeBlocks" class="seg-btn" role="radio" aria-checked="true" aria-label="Blocks"
+          title="Code with blocks. The blocks workspace is kept separately from the Python editor.">Blocks</button>
+        <button id="modePython" class="seg-btn" role="radio" aria-checked="false" aria-label="Python"
+          title="Type Python. Switching keeps your blocks; you can convert blocks into Python once.">Python</button>
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="picker">
+        <button id="fileBtn" class="btn" aria-haspopup="true">File ▾</button>
+        <div id="fileMenu" class="pop pop-right" role="menu" aria-label="File" hidden>
+          <button role="menuitem" id="mNew">New project</button>
+          <button role="menuitem" id="mOpen">Open… <kbd>Ctrl+O</kbd></button>
+          <button role="menuitem" id="mSave">Save <kbd>Ctrl+S</kbd></button>
+          <button role="menuitem" id="mSaveAs">Save as…</button>
+          <button role="menuitem" id="mExport">Export Python (.py)</button>
+          <button role="menuitem" id="mRestore" hidden>Restore last project</button>
+          <hr>
+          <button role="menuitem" id="mTeacher">Teacher: make a challenge…</button>
+        </div>
+      </div>
+      <button id="helpBtn" class="btn" aria-expanded="false" aria-controls="helpPanel">Help</button>
+    </header>
+
+    <main class="workspace">
+      <!-- ============ code column ============ -->
+      <section class="col col-code" aria-label="Your program">
+        <div class="col-head">
+          <p class="label" id="codeLabel">Your program · Blocks</p>
+          <div class="col-head-tools">
+            <button id="restoreBtn" class="btn btn-sm" hidden>Restore last project</button>
+            <button id="showCodeBtn" class="btn btn-sm" aria-expanded="false" aria-controls="codeDrawer">Show code</button>
+          </div>
+        </div>
+        <div class="editor-wrap">
+          <div id="blocksHost" class="blocks-host" aria-label="Blocks workspace"></div>
+          <div id="pyHost" class="py-host" hidden></div>
+        </div>
+        <div id="codeDrawer" class="code-drawer" hidden>
+          <div class="drawer-head"><span class="label">Python made from your blocks (read-only)</span></div>
+          <div id="genHost" class="gen-host"></div>
+        </div>
+        <div id="msg" class="msg" role="status" aria-live="polite"></div>
+      </section>
+
+      <!-- ============ field column ============ -->
+      <section class="col col-field" aria-label="Playground">
+        <div class="controls">
+          <button id="runBtn" class="btn btn-run" title="Run your program (Ctrl+Enter)">▶ Run</button>
+          <button id="stopBtn" class="btn btn-stop" disabled title="Stop the program (Esc)">■ Stop</button>
+          <button id="resetBtn" class="btn" title="Put the robot back at the start">↺ Reset</button>
+          <div class="seg seg-speed" role="radiogroup" aria-label="Speed">
+            <button class="seg-btn" role="radio" aria-checked="false" data-speed="0.5" title="Slow">0.5×</button>
+            <button class="seg-btn" role="radio" aria-checked="true" data-speed="1" title="Normal">1×</button>
+            <button class="seg-btn" role="radio" aria-checked="false" data-speed="2.5" title="Fast">2.5×</button>
+          </div>
+          <label class="check"><input type="checkbox" id="autoReset" checked> Reset before run</label>
+          <label class="check"><input type="checkbox" id="showPath" checked> Path</label>
+          <label class="check"><input type="checkbox" id="showSensors" checked> Sensors</label>
+        </div>
+        <div id="fieldBox" class="fieldbox">
+          <canvas id="field" role="img" aria-label="Playground with the robot"></canvas>
+          <div id="celebrate" class="celebrate" hidden role="alert">
+            <div class="cel-card">
+              <div class="cel-stars" aria-hidden="true"><span></span><span></span><span></span></div>
+              <h2>Challenge complete!</h2>
+              <p id="celText"></p>
+              <button id="celClose" class="btn btn-primary">Nice!</button>
+            </div>
+          </div>
+        </div>
+        <p id="worldMeta" class="world-meta"></p>
+      </section>
+
+      <!-- ============ info rail ============ -->
+      <aside class="col col-rail" aria-label="Robot status">
+        <div class="tiles">
+          <div class="stat" id="tSquareBox"><div class="k">Square</div><div class="v big" id="tSquare">1</div></div>
+          <div class="stat"><div class="k">Facing</div><div class="v" id="tFacing">up</div></div>
+          <div class="stat stat-wide"><div class="k">Position (mm)</div><div class="v" id="tPos">x 0, y 0</div></div>
+          <div class="stat"><div class="k">Distance</div><div class="v" id="tDist">—</div></div>
+          <div class="stat"><div class="k">Bumper</div><div class="v" id="tBump">—</div></div>
+          <div class="stat"><div class="k">Front eye</div><div class="v" id="tFront"><i class="sw"></i><span>—</span></div></div>
+          <div class="stat"><div class="k">Down eye</div><div class="v" id="tDown"><i class="sw"></i><span>—</span></div></div>
+        </div>
+        <div class="tabs" role="tablist" aria-label="Output">
+          <button role="tab" id="tabLog" aria-selected="true" aria-controls="panelLog">Steps</button>
+          <button role="tab" id="tabScreen" aria-selected="false" aria-controls="panelScreen" tabindex="-1">Screen<i class="dot" hidden></i></button>
+          <button role="tab" id="tabGoals" aria-selected="false" aria-controls="panelGoals" tabindex="-1">Challenge<i class="dot" hidden></i></button>
+        </div>
+        <div class="tab-panels">
+          <div role="tabpanel" id="panelLog" aria-labelledby="tabLog" class="panel">
+            <ol id="log" class="log" aria-label="Statements that ran, in order"></ol>
+          </div>
+          <div role="tabpanel" id="panelScreen" aria-labelledby="tabScreen" class="panel" hidden>
+            <pre id="screen" class="screen" aria-label="Robot screen"></pre>
+          </div>
+          <div role="tabpanel" id="panelGoals" aria-labelledby="tabGoals" class="panel" hidden>
+            <div id="goalsBox" class="goals"></div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <aside id="helpPanel" class="help-panel" hidden aria-label="Help">
+    <div class="help-head">
+      <h2>Command card</h2>
+      <button id="helpClose" class="btn btn-sm" aria-label="Close help">✕</button>
+    </div>
+    <div id="helpBody" class="help-body"></div>
+  </aside>
+
+  <div id="teacher" class="teacher" hidden role="dialog" aria-modal="true" aria-labelledby="teacherTitle">
+    <header class="teacher-bar">
+      <h2 id="teacherTitle">Teacher · Challenge maker</h2>
+      <div class="spacer"></div>
+      <button id="tTest" class="btn btn-primary">▶ Test this level</button>
+      <button id="tSave" class="btn">Save level</button>
+      <button id="tShare" class="btn">Share as challenge</button>
+      <button id="tClose" class="btn" aria-label="Close the challenge maker">✕ Close</button>
+    </header>
+    <div id="teacherHost" class="teacher-host"></div>
+  </div>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <noscript>Robot Lab needs JavaScript turned on.</noscript>
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>

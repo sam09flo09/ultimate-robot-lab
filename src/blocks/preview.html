@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blocks Preview</title>
+<style>
+  :root { --cream:#FDF9F2; --ink:#0C0B0A; --orange:#FF6A1A; --deep:#D6540E; --sand:#E9E0D2; --paper:#FFFDF9; }
+  html, body { margin:0; height:100%; background:var(--cream); color:var(--ink); font-family:system-ui, sans-serif; }
+  body { display:grid; grid-template-rows:auto 1fr; }
+  header { display:flex; gap:10px; align-items:center; padding:8px 12px; border-bottom:2px solid var(--sand); flex-wrap:wrap; }
+  header b { font-family:ui-monospace, Menlo, monospace; letter-spacing:.06em; }
+  header label, header button { font:600 13px ui-monospace, Menlo, monospace; min-height:40px; display:inline-flex; align-items:center; gap:6px;
+    padding:0 12px; border:2px solid var(--sand); border-radius:10px; background:var(--paper); cursor:pointer; }
+  header button:hover { border-color:var(--orange); }
+  main { display:grid; grid-template-columns:1fr 380px; min-height:0; }
+  #blocks { min-height:0; }
+  #side { display:grid; grid-template-rows:1fr auto; border-left:2px solid var(--sand); min-height:0; background:var(--paper); }
+  pre { margin:0; padding:12px; overflow:auto; font:13px/1.55 ui-monospace, Menlo, monospace; counter-reset:ln; }
+  pre span { display:block; padding-left:3.2em; position:relative; cursor:pointer; white-space:pre; }
+  pre span::before { counter-increment:ln; content:counter(ln); position:absolute; left:0; width:2.4em; text-align:right; color:#A89C8B; }
+  pre span:hover { background:var(--sand); }
+  pre span.on { background:#FFE2CF; }
+  #state { font:11px ui-monospace, monospace; padding:8px 12px; border-top:2px solid var(--sand); color:#6b6256; max-height:90px; overflow:auto; }
+  @media (max-width: 800px) { main { grid-template-columns:1fr; grid-template-rows:1fr 40%; } #side { border-left:0; border-top:2px solid var(--sand); } }
+</style>
+</head>
+<body>
+<header>
+  <b>ROBOT LAB · BLOCKS PREVIEW</b>
+  <label><input type="checkbox" id="pen" checked> pen</label>
+  <label><input type="checkbox" id="magnet" checked> magnet</label>
+  <label><input type="checkbox" id="ro"> read-only</label>
+  <button id="save">save state</button>
+  <button id="load">load saved</button>
+  <button id="garbage">load garbage</button>
+  <button id="step">step highlight</button>
+</header>
+<main>
+  <div id="blocks"></div>
+  <div id="side"><pre id="code"></pre><div id="state"></div></div>
+</main>
+<script type="module" src="./preview.ts"></script>
+</body>
+</html>

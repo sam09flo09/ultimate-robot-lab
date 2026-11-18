@@ -161,7 +161,8 @@ export interface RobotController {
   timer(): number;                        // sim seconds since brain.timer reset
   resetTimer(): void;
 
-  // hardware (no-ops that return false if the world doesn't fit that hardware)
+  // hardware: return false ONLY when the world doesn't fit that hardware
+  // (magnet(true) with nothing in front still returns true — it just picks up nothing)
   penDown(down: boolean): boolean;
   setPenColor(c: ColorName): boolean;
   magnet(on: boolean): boolean;           // on = pick up object directly in front; off = drop
