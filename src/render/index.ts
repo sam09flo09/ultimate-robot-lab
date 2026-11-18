@@ -3,7 +3,8 @@
  *
  * Two layers:
  *  - a STATIC layer (background, floor paint, walls, zones) drawn once to an offscreen canvas and
- *    rebuilt only when the world object identity, canvas size, DPR or showZones changes;
+ *    rebuilt only when the world object identity, canvas size, DPR, showZones or the editor view
+ *    (setView zoom/pan) changes;
  *  - a DYNAMIC layer drawn every frame on top: pen strokes, path, objects, distance ray, robot,
  *    carried object, editor selection.
  *
@@ -17,6 +18,7 @@
 import type { ColorName, FloorShape, SimState, Wall, World, WorldObject, Zone } from "../core/types";
 import { COLOR_HEX } from "../core/types";
 import type { RenderOptions, Renderer } from "../core/modules";
+import { computeLayout, layoutToCanvas, layoutToWorld, type Layout, type View } from "./view";
 
 const INK = "#0C0B0A";
 const ORANGE = "#FF6A1A";
@@ -29,6 +31,8 @@ const DEFAULT_ROBOT = 140;
 export interface RobotLabRenderer extends Renderer {
   /** Force the static layer to rebuild on the next draw (use after mutating a world in place). */
   invalidate(): void;
+  /** Zoom/pan for the level editor (see core/modules.ts Renderer.setView). */
+  setView(view: View | null): void;
 }
 
 export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
@@ -46,6 +50,8 @@ export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
   let ox = 0; // CSS px of field's left edge
   let oy = 0; // CSS px of field's top edge
   let sized = false;
+  let view: View | null = null; // editor zoom/pan; null = whole field fits
+  let L: Layout = { s, ox, oy, fieldW, fieldH };
 
   // static cache key
   let cacheWorld: World | null = null;
@@ -59,13 +65,10 @@ export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
   const noDash: number[] = [];
 
   function layout() {
-    const w = cssW > 0 ? cssW : 1;
-    const h = cssH > 0 ? cssH : 1;
-    const margin = Math.max(6, Math.min(w, h) * 0.025);
-    s = Math.min((w - 2 * margin) / fieldW, (h - 2 * margin) / fieldH);
-    if (!(s > 0)) s = Math.min(w / fieldW, h / fieldH) || 0.01;
-    ox = (w - fieldW * s) / 2;
-    oy = (h - fieldH * s) / 2;
+    L = computeLayout(cssW, cssH, fieldW, fieldH, view);
+    s = L.s;
+    ox = L.ox;
+    oy = L.oy;
     dashZone[0] = 7 / s; dashZone[1] = 5 / s;
     dashRay[0] = 5 / s; dashRay[1] = 4 / s;
     dashSel[0] = 6 / s; dashSel[1] = 4 / s;
@@ -613,11 +616,19 @@ export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
     draw,
     resize,
     invalidate() { dirty = true; },
+    setView(v: View | null) {
+      const next = v ? { zoom: v.zoom, cx: v.cx, cy: v.cy } : null;
+      if (next === null && view === null) return;
+      if (next && view && next.zoom === view.zoom && next.cx === view.cx && next.cy === view.cy) return;
+      view = next;
+      layout();
+      dirty = true; // static layer is rebuilt at the new transform on the next draw
+    },
     toWorld(px: number, py: number) {
-      return { x: (px - ox) / s - fieldW / 2, y: fieldH / 2 - (py - oy) / s };
+      return layoutToWorld(L, px, py);
     },
     toCanvas(x: number, y: number) {
-      return { px: ox + (x + fieldW / 2) * s, py: oy + (fieldH / 2 - y) * s };
+      return layoutToCanvas(L, x, y);
     },
   };
 }

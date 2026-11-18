@@ -10,16 +10,26 @@ export function createFallbackRenderer(canvas: HTMLCanvasElement): Renderer {
   let cssW = 1, cssH = 1, dpr = 1;
   let scale = 0.3, ox = 0, oy = 0;
   let lastW = 2000, lastH = 2000;
+  let view: { zoom: number; cx: number; cy: number } | null = null;
 
   const fit = (w: number, h: number) => {
     lastW = w; lastH = h;
     const m = 16;
     scale = Math.max(0.01, Math.min((cssW - 2 * m) / w, (cssH - 2 * m) / h));
     ox = cssW / 2; oy = cssH / 2;
+    if (view) {
+      scale *= view.zoom;
+      ox -= view.cx * scale;
+      oy += view.cy * scale;
+    }
   };
 
   const r: Renderer = {
     invalidate() { /* no cache */ },
+    setView(v) {
+      view = v ? { zoom: v.zoom > 0 ? v.zoom : 1, cx: v.cx, cy: v.cy } : null;
+      fit(lastW, lastH);
+    },
     resize() {
       dpr = (typeof window !== "undefined" && window.devicePixelRatio) || 1;
       cssW = Math.max(1, canvas.clientWidth || canvas.width);

@@ -14,6 +14,8 @@ import { collectIds, ID_PREFIX, nextId } from "./ids";
 import { COLOR_NAMES, LEVEL_EXTENSION, LIMITS, levelFileText, normDeg, parseLevelFile, SIZE_PRESETS, newBlankWorld, sanitizeWorld } from "./levelFile";
 import { EDITOR_CSS } from "./styles";
 import { GOAL_LABELS, validateWorld, type Issue } from "./validate";
+import { clampView, FIT_VIEW, MAX_ZOOM, MIN_ZOOM, panBy, viewWithAnchor, wheelZoomFactor, type EditorView } from "./viewMath";
+import { moveGoal, moveVisitZone } from "./goalOrder";
 
 /** The id the renderer uses to outline the robot start. */
 const RENDER_START_ID = "start";
@@ -58,7 +60,7 @@ const ICONS: Record<Tool, string> = {
   erase: '<path d="M4 15l8-8 7 7-5 5H8z"/><path d="M8 19h12"/>',
 };
 const TOOL_INFO: { id: Tool; label: string; key: string; hint: string }[] = [
-  { id: "select", label: "Select", key: "v", hint: "Click an item to select · drag to move · arrows nudge · Delete removes" },
+  { id: "select", label: "Select", key: "v", hint: "Click an item to select · drag to move · arrows nudge · Delete removes · wheel/pinch zooms · space+drag pans" },
   { id: "wall", label: "Wall", key: "w", hint: "Drag (or click two points) to draw a wall" },
   { id: "paint", label: "Paint", key: "p", hint: "" },
   { id: "object", label: "Object", key: "o", hint: "Click to place an object" },
@@ -115,7 +117,8 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
   };
   let tab: "item" | "level" | "goals" = "level";
   let drag: Drag | null = null;
-  let pending: { mode: TwoPointMode; a: Vec } | null = null;
+  type Pending = { mode: TwoPointMode; a: Vec } | null;
+  let pending: Pending = null;
   let linePts: Vec[] = [];
   let hover: Vec | null = null;
   let lastDown = { t: 0, px: -99, py: -99 };
@@ -161,7 +164,12 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
   const canvas = h("canvas", {});
   const overlay = h("canvas", { class: "le-overlay", "aria-label": "Level canvas" });
   const toast = h("div", { class: "le-toast", role: "status" });
-  stage.append(canvas, overlay, toast);
+  const btnZoomOut = h("button", { class: "le-btn le-zbtn", title: "Zoom out (−)", "aria-label": "Zoom out", text: "−" });
+  const btnZoomIn = h("button", { class: "le-btn le-zbtn", title: "Zoom in (+)", "aria-label": "Zoom in", text: "+" });
+  const btnFit = h("button", { class: "le-btn le-zbtn", title: "Fit the whole field (0)", "aria-label": "Fit the whole field", text: "Fit" });
+  const zoomLabel = h("span", { class: "le-zoom-label", "aria-live": "polite", text: "100%" });
+  const zoomBar = h("div", { class: "le-zoom", role: "group", "aria-label": "Zoom" }, btnZoomOut, zoomLabel, btnZoomIn, btnFit);
+  stage.append(canvas, overlay, zoomBar, toast);
 
   const tabBtns = {
     item: h("button", { class: "le-tab", role: "tab", text: "Item" }),
@@ -180,6 +188,11 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
   host.append(root);
 
   const renderer = makeRenderer(canvas);
+  /** Zoom/pan needs Renderer.setView (optional in the contract); without it the editor stays at "fit". */
+  const canZoom = typeof renderer.setView === "function";
+  if (!canZoom) zoomBar.style.display = "none";
+  let view: EditorView = { ...FIT_VIEW };
+  let viewField = { w: world.width, h: world.height };
 
   // ---------------- state changes
 
@@ -204,6 +217,7 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
   function afterChange(o: AfterOpts = {}) {
     const { record = true, rebuild = "all", emit = true } = o;
     if (selectedId && !findItem(world, selectedId)) selectedId = null;
+    if (world.width !== viewField.w || world.height !== viewField.h) applyView(view);
     if (record) commit();
     if (emit) scheduleEmit();
     requestDraw();
@@ -258,7 +272,7 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
     pending = null;
     tool = t;
     for (const [id, b] of toolBtns) b.setAttribute("aria-pressed", String(id === t));
-    overlay.style.cursor = t === "select" ? "default" : t === "erase" ? "not-allowed" : "crosshair";
+    setCursor();
     renderOptsBar();
     requestDraw();
   }
@@ -483,7 +497,123 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
     return -1;
   }
 
+  // ---------------- zoom & pan
+
+  /** CSS px per mm at the current view. */
+  const curScale = () => 1 / mmPerPx();
+  const stageCentre = () => ({ px: (canvas.clientWidth || overlay.clientWidth) / 2, py: (canvas.clientHeight || overlay.clientHeight) / 2 });
+
+  function setCursor() {
+    overlay.style.cursor = pan ? "grabbing" : spaceDown && canZoom ? "grab"
+      : tool === "select" ? "default" : tool === "erase" ? "not-allowed" : "crosshair";
+  }
+
+  function updateZoomUi() {
+    zoomLabel.textContent = `${Math.round(view.zoom * 100)}%`;
+    btnZoomOut.disabled = view.zoom <= MIN_ZOOM + 1e-6;
+    btnZoomIn.disabled = view.zoom >= MAX_ZOOM - 1e-6;
+    btnFit.disabled = view.zoom === FIT_VIEW.zoom && view.cx === FIT_VIEW.cx && view.cy === FIT_VIEW.cy;
+  }
+
+  /** Clamp and apply a view (no-op when the renderer can't zoom). */
+  function applyView(v: EditorView) {
+    viewField = { w: world.width, h: world.height };
+    if (!canZoom) return;
+    const next = clampView(v, world.width, world.height);
+    const same = next.zoom === view.zoom && next.cx === view.cx && next.cy === view.cy;
+    view = next;
+    renderer.setView!(view.zoom === FIT_VIEW.zoom && view.cx === FIT_VIEW.cx && view.cy === FIT_VIEW.cy ? null : view);
+    updateZoomUi();
+    if (!same) requestDraw();
+  }
+
+  /** Zoom to `zoom`, keeping the world point under canvas point `at` (default: the centre) fixed. */
+  function zoomTo(zoom: number, at = stageCentre()) {
+    if (!canZoom) return;
+    const z = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+    const anchor = renderer.toWorld(at.px, at.py);
+    applyView(viewWithAnchor(z, anchor, at, stageCentre(), curScale() / view.zoom));
+  }
+
+  btnZoomIn.addEventListener("click", () => zoomTo(view.zoom * 1.5));
+  btnZoomOut.addEventListener("click", () => zoomTo(view.zoom / 1.5));
+  btnFit.addEventListener("click", () => applyView(FIT_VIEW));
+
+  overlay.addEventListener("wheel", (e) => {
+    if (!canZoom) return;
+    e.preventDefault();
+    // zooming keeps the world point under the cursor fixed, so the snapped hover point stays put
+    zoomTo(view.zoom * wheelZoomFactor(e.deltaY, e.deltaMode, e.ctrlKey), localPt(e));
+  }, { passive: false });
+
+  // Pan: middle-button drag, space + drag (mouse/pen), or two fingers (touch, together with pinch).
+  let pan: { id: number; px: number; py: number } | null = null;
+  let spaceDown = false;
+  const touches = new Map<number, { px: number; py: number }>();
+  let gesture: { d0: number; zoom0: number; base: number; anchor: Vec } | null = null;
+  /** After a two-finger gesture, ignore the remaining finger(s) until all are lifted. */
+  let gestureLock = false;
+  /** Editor state when the first finger went down, so a pinch can undo what that finger started. */
+  let touchSnap: { world: World; json: string; pending: Pending; linePts: Vec[]; selectedId: string | null } | null = null;
+
+  function twoTouches() {
+    const [a, b] = Array.from(touches.values());
+    return { d: Math.hypot(b.px - a.px, b.py - a.py), mid: { px: (a.px + b.px) / 2, py: (a.py + b.py) / 2 } };
+  }
+
+  function startGesture() {
+    // the first finger may already have started a tool action: take it back
+    if (touchSnap) {
+      const snap = touchSnap;
+      drag = null;
+      pending = snap.pending;
+      linePts = snap.linePts;
+      if (world !== snap.world) {
+        if (JSON.stringify(history.current()) !== snap.json) history.undo();
+        world = snap.world;
+        afterChange({ record: false });
+        updateUndo();
+      }
+      if (selectedId !== snap.selectedId) { selectedId = snap.selectedId; renderItemPanel(); }
+      touchSnap = null;
+    }
+    const { d, mid } = twoTouches();
+    gesture = { d0: Math.max(1, d), zoom0: view.zoom, base: curScale() / view.zoom, anchor: renderer.toWorld(mid.px, mid.py) };
+    gestureLock = true;
+    hover = null;
+    requestDraw();
+  }
+
+  function updateGesture() {
+    if (!gesture || touches.size < 2) return;
+    const { d, mid } = twoTouches();
+    const z = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, gesture.zoom0 * (d / gesture.d0)));
+    applyView(viewWithAnchor(z, gesture.anchor, mid, stageCentre(), gesture.base));
+  }
+
   function onDown(e: PointerEvent) {
+    if (e.pointerType === "touch") {
+      touches.set(e.pointerId, localPt(e));
+      if (touches.size === 1) {
+        gestureLock = false;
+        touchSnap = { world, json: JSON.stringify(history.current()), pending, linePts: linePts.slice(), selectedId };
+      } else {
+        e.preventDefault();
+        try { overlay.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+        if (canZoom && !gesture && touches.size === 2) startGesture();
+        return;
+      }
+      if (gestureLock) return;
+    }
+    if (canZoom && e.pointerType !== "touch" && (e.button === 1 || (e.button === 0 && spaceDown))) {
+      e.preventDefault();
+      root.focus({ preventScroll: true });
+      try { overlay.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+      const { px, py } = localPt(e);
+      pan = { id: e.pointerId, px, py };
+      setCursor();
+      return;
+    }
     if (e.pointerType === "mouse" && e.button !== 0) return;
     e.preventDefault();
     root.focus({ preventScroll: true });
@@ -545,6 +675,16 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
   }
 
   function onMove(e: PointerEvent) {
+    if (e.pointerType === "touch" && touches.has(e.pointerId)) touches.set(e.pointerId, localPt(e));
+    if (gesture) { updateGesture(); return; }
+    if (pan) {
+      if (e.pointerId !== pan.id) return;
+      const { px, py } = localPt(e);
+      applyView(panBy(view, px - pan.px, py - pan.py, curScale()));
+      pan.px = px; pan.py = py;
+      return;
+    }
+    if (gestureLock && e.pointerType === "touch") return;
     const raw = rawPt(e);
     if (tool !== "select" && tool !== "erase") hover = snapP(raw);
     if (drag) {
@@ -568,6 +708,13 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
   }
 
   function onUp(e: PointerEvent) {
+    if (pan && e.pointerId === pan.id) { pan = null; setCursor(); return; }
+    if (e.pointerType === "touch") {
+      touches.delete(e.pointerId);
+      if (touches.size < 2) gesture = null;
+      if (touches.size === 0) touchSnap = null;
+      if (gestureLock) { if (touches.size === 0) gestureLock = false; return; }
+    }
     const d = drag;
     drag = null;
     if (!d) return;
@@ -599,8 +746,16 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
     if (mod && k === "y") { e.preventDefault(); redo(); return; }
     if (mod && k === "d") { e.preventDefault(); duplicateSelected(); return; }
     if (mod || e.altKey) return;
+    if (e.key === " " && !(t && t.closest && t.closest("button"))) {
+      e.preventDefault();
+      if (!spaceDown) { spaceDown = true; setCursor(); }
+      return;
+    }
     const step = (snapOn ? snapStep : 10) * (e.shiftKey ? 5 : 1);
     switch (e.key) {
+      case "+": case "=": e.preventDefault(); zoomTo(view.zoom * 1.5); return;
+      case "-": case "_": e.preventDefault(); zoomTo(view.zoom / 1.5); return;
+      case "0": e.preventDefault(); applyView(FIT_VIEW); return;
       case "ArrowLeft": e.preventDefault(); nudge(-step, 0); return;
       case "ArrowRight": e.preventDefault(); nudge(step, 0); return;
       case "ArrowUp": e.preventDefault(); nudge(0, step); return;
@@ -622,6 +777,11 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
     if (ti && e.key.length === 1) setTool(ti.id);
   });
 
+  root.addEventListener("keyup", (e) => { if (e.key === " " && spaceDown) { spaceDown = false; setCursor(); } });
+  root.addEventListener("focusout", (e) => {
+    if (spaceDown && !root.contains(e.relatedTarget as Node | null)) { spaceDown = false; setCursor(); }
+  });
+
   // ---------------- header actions
 
   btnUndo.addEventListener("click", undo);
@@ -640,6 +800,7 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
     cancelInteraction();
     world = prepare(newBlankWorld());
     selectedId = null;
+    applyView(FIT_VIEW);
     afterChange();
   });
   btnSave.addEventListener("click", () => {
@@ -663,6 +824,7 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
     cancelInteraction();
     world = r.world;
     selectedId = null;
+    applyView(FIT_VIEW);
     afterChange();
     say(r.warnings.length ? `Opened "${world.name}" (${r.warnings.length} thing${r.warnings.length > 1 ? "s" : ""} fixed up).` : `Opened "${world.name}".`);
   });
@@ -880,8 +1042,21 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
     return s;
   }
 
+  /** data-fk of the ▲/▼ button to refocus after the Goals panel is rebuilt (keyboard reordering). */
+  let goalFocus: string[] | null = null;
+
+  /** A ▲ / ▼ reorder button. `keys` = data-fk to refocus after the move (first enabled wins). */
+  function moveButton(dir: -1 | 1, enabled: boolean, label: string, fk: string, keys: string[], run: () => void): HTMLButtonElement {
+    const b = h("button", { class: "le-btn le-move", title: label, "aria-label": label, "data-fk": fk, text: dir < 0 ? "▲" : "▼" });
+    b.disabled = !enabled;
+    b.addEventListener("click", () => { goalFocus = keys; run(); });
+    return b;
+  }
+
   function renderGoalsPanel() {
     const P = panels.goals;
+    const restore = goalFocus;
+    goalFocus = null;
     P.replaceChildren();
     P.append(h("h3", { text: "Goals — all must pass" }));
     const issues = validateWorld(world);
@@ -896,7 +1071,12 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
       typeSel.setAttribute("aria-label", `Goal ${i + 1} type`);
       const rm = h("button", { class: "le-btn le-small le-danger", title: "Remove goal", "aria-label": `Remove goal ${i + 1}`, text: "✕" });
       rm.addEventListener("click", () => mutate((w) => { w.goals.splice(i, 1); }));
-      card.append(h("div", { class: "le-goal-head" }, h("b", { text: `#${i + 1}` }), typeSel, rm));
+      const n = world.goals.length;
+      const up = moveButton(-1, i > 0, `Move goal ${i + 1} up`, `g${i}u`, [`g${i - 1}u`, `g${i - 1}d`],
+        () => mutate((w) => { moveGoal(w, i, -1); }));
+      const down = moveButton(1, i < n - 1, `Move goal ${i + 1} down`, `g${i}d`, [`g${i + 1}d`, `g${i + 1}u`],
+        () => mutate((w) => { moveGoal(w, i, 1); }));
+      card.append(h("div", { class: "le-goal-head" }, h("b", { text: `#${i + 1}` }), up, down, h("span", { class: "le-spacer" }), rm), typeSel);
       switch (g.type) {
         case "reachZone":
           card.append(field("Zone", zonePicker(g.zone, (v) => upd(i, (q) => { if (q.type === "reachZone") q.zone = v; }))));
@@ -909,10 +1089,15 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
           break;
         case "visitInOrder": {
           g.zones.forEach((z, k) => {
-            const x = h("button", { class: "le-btn le-small", "aria-label": "Remove from order", text: "✕" });
+            const x = h("button", { class: "le-btn le-small", "aria-label": `Remove stop ${k + 1} from goal ${i + 1}`, text: "✕" });
             x.addEventListener("click", () => upd(i, (q) => { if (q.type === "visitInOrder") q.zones.splice(k, 1); }));
-            const row = h("div", { class: "le-row" }, h("span", { class: "le-lab", text: `${k + 1}.` }),
-              zonePicker(z, (v) => upd(i, (q) => { if (q.type === "visitInOrder") q.zones[k] = v; })), x);
+            const up = moveButton(-1, k > 0, `Move stop ${k + 1} of goal ${i + 1} earlier`, `g${i}z${k}u`, [`g${i}z${k - 1}u`, `g${i}z${k - 1}d`],
+              () => mutate((w) => { moveVisitZone(w, i, k, -1); }));
+            const down = moveButton(1, k < g.zones.length - 1, `Move stop ${k + 1} of goal ${i + 1} later`, `g${i}z${k}d`, [`g${i}z${k + 1}d`, `g${i}z${k + 1}u`],
+              () => mutate((w) => { moveVisitZone(w, i, k, 1); }));
+            const pick = zonePicker(z, (v) => upd(i, (q) => { if (q.type === "visitInOrder") q.zones[k] = v; }));
+            pick.setAttribute("aria-label", `Goal ${i + 1}, stop ${k + 1} zone`);
+            const row = h("div", { class: "le-row le-zrow" }, h("span", { class: "le-lab", text: `${k + 1}.` }), pick, up, down, x);
             card.append(row);
           });
           const add = h("button", { class: "le-btn le-small", text: "+ Add zone" });
@@ -944,6 +1129,12 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
       const add = h("button", { class: "le-btn le-small", text: "+ Add goal" });
       add.addEventListener("click", () => mutate((w) => { w.goals.push(defaultGoal(pick, w)); }));
       P.append(h("div", { class: "le-row" }, sel, add));
+    }
+    if (restore) {
+      for (const k of restore) {
+        const b = P.querySelector<HTMLButtonElement>(`[data-fk="${k}"]`);
+        if (b && !b.disabled) { b.focus({ preventScroll: false }); break; }
+      }
     }
   }
 
@@ -1099,6 +1290,7 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
   renderPanels();
   renderIssues();
   updateUndo();
+  updateZoomUi();
   onResize();
 
   return {
@@ -1108,6 +1300,7 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
       world = prepare(w);
       history.reset(world);
       selectedId = null;
+      applyView(FIT_VIEW);
       afterChange({ record: false, emit: false });
       updateUndo();
     },

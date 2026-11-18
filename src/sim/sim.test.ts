@@ -158,6 +158,125 @@ describe("walls and blocking", () => {
   });
 });
 
+/** Robot square corners from the state (independent of the engine's collision code). */
+function corners(sim: Sim) {
+  const { x, y, heading } = sim.state.robot, h = sim.state.robotSize / 2, a = (heading * Math.PI) / 180;
+  const ux = Math.sin(a), uy = Math.cos(a), vx = Math.cos(a), vy = -Math.sin(a);
+  return [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([f, s]) => ({ x: x + (ux * f + vx * s) * h, y: y + (uy * f + vy * s) * h }));
+}
+
+/** Deepest corner penetration (mm) into the border and into full-width horizontal walls given as [bottomFace, topFace]. */
+function penetration(sim: Sim, slabs: Array<[number, number]> = [], vslabs: Array<[number, number]> = []): number {
+  let worst = 0;
+  const hw = sim.world.width / 2, hh = sim.world.height / 2;
+  for (const c of corners(sim)) {
+    worst = Math.max(worst, Math.abs(c.x) - hw, Math.abs(c.y) - hh);
+    for (const [lo, hi] of slabs) if (c.y > lo && c.y < hi) worst = Math.max(worst, Math.min(c.y - lo, hi - c.y));
+    for (const [lo, hi] of vslabs) if (c.x > lo && c.x < hi) worst = Math.max(worst, Math.min(c.x - lo, hi - c.x));
+  }
+  return worst;
+}
+
+/** Run a program at 120 Hz, tracking the worst penetration after every step. */
+async function runTracked(sim: Sim, prog: (c: RobotController) => Promise<void>, pen: () => number, maxSeconds = 20) {
+  let done = false, worst = 0;
+  prog(sim.controller).then(() => { done = true; }, () => { done = true; });
+  await flush();
+  for (let i = 0; i < maxSeconds * 120 && !done; i++) {
+    sim.step(1 / 120);
+    worst = Math.max(worst, pen());
+    await flush();
+  }
+  if (!done) throw new Error("program did not finish (hang)");
+  return worst;
+}
+
+describe("square robot footprint", () => {
+  const topWall = { a: { x: -1000, y: 410 }, b: { x: 1000, y: 410 }, thickness: 20 }; // faces at y=400..420
+
+  it("at 45° the corners never enter a wall while driving diagonally into it and sliding along it", async () => {
+    const sim = createSim(makeWorld({ walls: [topWall], start: { x: -700, y: 0, heading: 45 } }));
+    let worst = 0;
+    sim.controller.drive("FORWARD");
+    for (let i = 0; i < 8 * 120; i++) { sim.step(1 / 120); worst = Math.max(worst, penetration(sim, [[400, 420]])); }
+    sim.controller.stop();
+    expect(worst).toBeLessThan(0.5);
+    // it slid right along the wall and into the corner with the border, corner first
+    expect(sim.state.robot.y).toBeCloseTo(400 - 70 * Math.SQRT2, 3);
+    expect(sim.state.robot.x).toBeCloseTo(1000 - 70 * Math.SQRT2, 3);
+    expect(sim.state.wallHits).toBe(1);
+  });
+
+  it("a glancing drive_for slides along a wall without clipping and ends", async () => {
+    const sim = createSim(makeWorld({ walls: [topWall], start: { x: -700, y: 250, heading: 60 } }));
+    const worst = await runTracked(sim, (c) => c.driveFor("FORWARD", 800), () => penetration(sim, [[400, 420]]));
+    expect(worst).toBeLessThan(0.5);
+    expect(sim.state.robot.x).toBeGreaterThan(-100); // slid ~600 mm along the wall instead of stopping
+    expect(sim.state.robot.y).toBeCloseTo(400 - 70 * (Math.sin(Math.PI / 3) + 0.5), 3);
+    expect(sim.state.wallHits).toBe(1);
+  });
+
+  it("driving to the border from square 1 still stops touching it (930)", async () => {
+    const sim = createSim(makeWorld());
+    await run(sim, (c) => c.driveFor("FORWARD", 3000));
+    expect(sim.state.robot.y).toBeCloseTo(930, 3);
+    expect(sim.state.wallHits).toBe(1);
+  });
+
+  it("turning in place against the border pushes the robot out instead of clipping, and finishes", async () => {
+    const sim = createSim(makeWorld());
+    await run(sim, (c) => c.driveFor("FORWARD", 3000));
+    const worst = await runTracked(sim, (c) => c.turnFor("RIGHT", 90), () => penetration(sim));
+    expect(worst).toBeLessThan(0.5);
+    expect(sim.state.robot.heading).toBe(90);
+    expect(sim.state.robot.x).toBe(-900);
+    expect(sim.state.robot.y).toBeCloseTo(1000 - 70 * Math.SQRT2, 3); // shoved back by the swinging corner
+    expect(sim.state.wallHits).toBe(1); // one continuous contact
+  });
+
+  it("turning near an interior wall: corners do not clip, one hit, exact heading", async () => {
+    const sim = createSim(makeWorld({ walls: [topWall], start: { x: 0, y: 400 - 70 - 15, heading: 0 } }));
+    const worst = await runTracked(sim, (c) => c.turnFor("LEFT", 90), () => penetration(sim, [[400, 420]]));
+    expect(worst).toBeLessThan(0.5);
+    expect(sim.state.robot.heading).toBe(270);
+    expect(sim.state.wallHits).toBe(1);
+  });
+
+  it("a turn that cannot fit (gap narrower than the diagonal) resolves early without clipping", async () => {
+    const walls = [
+      { a: { x: -95, y: -1000 }, b: { x: -95, y: 1000 }, thickness: 20 }, // inner face x=-85
+      { a: { x: 95, y: -1000 }, b: { x: 95, y: 1000 }, thickness: 20 },   // inner face x=85
+    ];
+    const sim = createSim(makeWorld({ walls, start: { x: 0, y: 0, heading: 0 } }));
+    const t0 = sim.state.time;
+    const worst = await runTracked(sim, (c) => c.turnFor("RIGHT", 90), () => penetration(sim, [], [[-105, -85], [85, 105]]));
+    expect(worst).toBeLessThan(0.5);
+    const h = sim.state.robot.heading;
+    expect(h).toBeGreaterThan(1);
+    expect(h).toBeLessThan(20);
+    expect(sim.state.time - t0).toBeLessThan(0.3);
+    expect(sim.controller.isDone()).toBe(true);
+    expect(sim.state.wallHits).toBe(1);
+    // continuous turn() stays wedged but stop() ends it; turning back out still works
+    sim.controller.turn("RIGHT");
+    await steps(sim, 0.5);
+    sim.controller.stop();
+    expect(penetration(sim, [], [[-105, -85], [85, 105]])).toBeLessThan(0.5);
+    await run(sim, (c) => c.turnToHeading(0));
+    expect(sim.state.robot.heading).toBe(0);
+  });
+
+  it("a square corner on an immovable box does not clip the robot at 45°", async () => {
+    const rock: WorldObject = { id: "rock", shape: "box", x: 0, y: 500, size: 200, color: "BLUE", movable: false, pickable: false };
+    const sim = createSim(makeWorld({ objects: [rock], start: { x: -300, y: 100, heading: 45 } }));
+    const worst = await runTracked(sim, (c) => c.driveFor("FORWARD", 800), () => penetration(sim));
+    expect(worst).toBeLessThan(0.5);
+    // no robot corner inside the box
+    for (const c of corners(sim)) expect(Math.abs(c.x) < 100 - 0.5 && Math.abs(c.y - 500) < 100 - 0.5).toBe(false);
+    expect(sim.state.wallHits).toBe(1);
+  });
+});
+
 describe("objects", () => {
   it("pushes a movable disk, which then stops at the wall", async () => {
     const sim = createSim(makeWorld({ objects: [disk("d", -900, -600)] }));

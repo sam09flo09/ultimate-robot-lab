@@ -22,12 +22,14 @@ const MAX_PATH_POINTS = 20000;
 const BLOCKED_SUBSTEPS = 3;       // consecutive near-zero-progress substeps before drive_for gives up
 const SETTLE_SECONDS = 0.3;       // idle time needed before end-state goals count as complete
 const ITERATIONS = 4;
+const STATIC_ITERATIONS = 4;      // robot-vs-walls/border resolution passes per substep
+const PENETRATION_SLOP = 0.01;    // mm of extra overlap tolerated before a move is undone
 
 type Resolver = { resolve: () => void; reject: (e: Error) => void };
 
 type Motion =
   | (Resolver & { kind: "driveFor"; sign: number; remaining: number; total: number; x0: number; y0: number; deflected: boolean; blocked: number })
-  | (Resolver & { kind: "turnFor"; sign: number; remaining: number; total: number; h0: number; rot0: number })
+  | (Resolver & { kind: "turnFor"; sign: number; remaining: number; total: number; h0: number; rot0: number; blocked: number })
   | { kind: "drive"; sign: number }
   | { kind: "turn"; sign: number };
 
@@ -48,7 +50,7 @@ function objectBody(o: WorldObject): Body {
 export class Engine {
   readonly world: World;
   readonly state: SimState;
-  readonly half: number;          // robot half-size (collision radius vs walls)
+  readonly half: number;          // robot half-size (half the side of its square footprint)
   readonly halfW: number;
   readonly halfH: number;
   readonly hasPen: boolean;
@@ -64,8 +66,10 @@ export class Engine {
   carryIndex = -1;
   private carryRel = 0;
 
-  private robotCircle: Body;
+  /** The robot's collision shape: an oriented square of side ROBOT_SIZE (= state.robotSize). */
   private robotBox: Body;
+  /** Penetration into walls/border the robot was left with after the last substep (normally 0). */
+  private residual = 0;
   private hit: Hit = { nx: 0, ny: 0, depth: 0 };
 
   motion: Motion | null = null;
@@ -98,7 +102,6 @@ export class Engine {
     this.hasMagnet = !!world.hardware?.magnet;
     this.needsSettle = world.goals.some(isEndStateGoal);
     this.wallBodies = world.walls.map((w) => makeWallBody(w.a, w.b, w.thickness));
-    this.robotCircle = makeCircle(0, 0, this.half);
     this.robotBox = makeBox(0, 0, this.half, this.half, 0);
     this.state = {
       time: 0,
@@ -189,6 +192,7 @@ export class Engine {
 
     this.zoneInside = w.zones.map(() => false);
     this.updateRobotBodies();
+    this.residual = this.measureStatics();
     this.touchingStatic = true; // starting against a wall is not a hit
     this.updateContacts();
     this.touchingStatic = this.contactNow;
@@ -225,7 +229,7 @@ export class Engine {
     this.endMotion();
     this.hasActed = true;
     return this.track(new Promise<void>((resolve, reject) => {
-      this.motion = { kind: "turnFor", sign, remaining: deg, total: deg, h0: this.state.robot.heading, rot0: this.rotation, resolve, reject };
+      this.motion = { kind: "turnFor", sign, remaining: deg, total: deg, h0: this.state.robot.heading, rot0: this.rotation, blocked: 0, resolve, reject };
     }));
   }
 
@@ -318,8 +322,8 @@ export class Engine {
     const m = this.motion;
     const rad = (r.heading * Math.PI) / 180;
     const ux = clean(Math.sin(rad)), uy = clean(Math.cos(rad));
-    const px = r.x, py = r.y;
-    let intended = 0;
+    const px = r.x, py = r.y, ph = r.heading, prot = this.rotation;
+    let intended = 0, moved = 0; // moved = mm driven or degrees turned this substep
 
     if (m) {
       if (m.kind === "driveFor" || m.kind === "drive") {
@@ -330,6 +334,7 @@ export class Engine {
           r.x += ux * d * m.sign;
           r.y += uy * d * m.sign;
           intended = d;
+          moved = d;
         }
         if (m.kind === "driveFor") {
           m.remaining -= d;
@@ -347,11 +352,24 @@ export class Engine {
           const h = r.heading + a * m.sign;
           r.heading = h >= 360 ? h - 360 : h < 0 ? h + 360 : h;
           this.rotation += a * m.sign;
+          moved = a;
         }
       }
     }
 
-    this.resolveCollisions();
+    // Push the robot out of what it ran (or swung its corners) into. If it cannot get
+    // clear -- a turn in a gap narrower than its diagonal, a wedge-shaped corner -- the
+    // move is undone instead, so the square never ends up overlapping a wall.
+    const residual = this.resolveCollisions();
+    let reverted = false;
+    if (residual > this.residual + PENETRATION_SLOP) {
+      r.x = px; r.y = py; r.heading = ph; this.rotation = prot;
+      if (m && "remaining" in m) m.remaining += moved;
+      this.updateRobotBodies();
+      reverted = true;
+    } else {
+      this.residual = residual;
+    }
     this.updateCarried();
     this.updateContacts();
 
@@ -374,12 +392,23 @@ export class Engine {
           r.x = round6(r.x); r.y = round6(r.y);
           this.endMotion();
         }
-      } else if (m.kind === "turnFor" && m.remaining <= 1e-9) {
-        r.heading = normDeg(m.h0 + m.total * m.sign);
-        this.rotation = round6(m.rot0 + m.total * m.sign);
-        this.updateRobotBodies();
-        this.updateCarried();
-        this.endMotion();
+      } else if (m.kind === "turnFor") {
+        if (moved > 0) m.blocked = reverted ? m.blocked + 1 : 0;
+        if (m.remaining <= 1e-9) {
+          r.heading = normDeg(m.h0 + m.total * m.sign);
+          this.rotation = round6(m.rot0 + m.total * m.sign);
+          this.updateRobotBodies();
+          this.updateCarried();
+          this.endMotion();
+        } else if (m.blocked >= BLOCKED_SUBSTEPS) {
+          // wedged: a blocked turn_for ends early, like a blocked drive_for
+          r.heading = normDeg(r.heading);
+          this.rotation = round6(this.rotation);
+          r.x = round6(r.x); r.y = round6(r.y);
+          this.updateRobotBodies();
+          this.updateCarried();
+          this.endMotion();
+        }
       }
     }
 
@@ -401,7 +430,6 @@ export class Engine {
 
   updateRobotBodies(): void {
     const r = this.state.robot;
-    this.robotCircle.x = r.x; this.robotCircle.y = r.y;
     this.robotBox.x = r.x; this.robotBox.y = r.y;
     setBoxAngle(this.robotBox, r.heading);
   }
@@ -446,7 +474,8 @@ export class Engine {
     }
   }
 
-  private resolveCollisions(): void {
+  /** Returns the robot's remaining penetration into walls/immovable objects/border (0 = clear). */
+  private resolveCollisions(): number {
     const s = this.state, r = s.robot, hit = this.hit;
     const bodies = this.objBodies, n = bodies.length;
     this.updateRobotBodies();
@@ -478,19 +507,46 @@ export class Engine {
       this.awake.fill(0);
     }
 
-    // robot vs walls, immovable objects, border
-    const statics = this.statics, c = this.robotCircle;
-    c.x = r.x; c.y = r.y;
-    for (let k = 0; k < statics.length; k++) {
-      if (collide(c, statics[k], hit)) {
-        r.x -= hit.nx * hit.depth; r.y -= hit.ny * hit.depth;
-        c.x = r.x; c.y = r.y;
+    // robot (oriented square) vs walls, immovable objects, border: minimal push-out
+    const statics = this.statics, box = this.robotBox;
+    box.x = r.x; box.y = r.y;
+    const e = this.borderExtent();
+    const lx = this.halfW - e, ly = this.halfH - e;
+    for (let it = 0; it < STATIC_ITERATIONS; it++) {
+      let moved = false;
+      for (let k = 0; k < statics.length; k++) {
+        if (collide(box, statics[k], hit)) {
+          r.x -= hit.nx * hit.depth; r.y -= hit.ny * hit.depth;
+          box.x = r.x; box.y = r.y;
+          if (hit.depth > 1e-9) moved = true;
+        }
       }
+      if (r.x > lx) { r.x = lx; moved = true; } else if (r.x < -lx) { r.x = -lx; moved = true; }
+      if (r.y > ly) { r.y = ly; moved = true; } else if (r.y < -ly) { r.y = -ly; moved = true; }
+      box.x = r.x; box.y = r.y;
+      if (!moved) return 0;
     }
-    const lx = this.halfW - this.half, ly = this.halfH - this.half;
-    if (r.x > lx) r.x = lx; else if (r.x < -lx) r.x = -lx;
-    if (r.y > ly) r.y = ly; else if (r.y < -ly) r.y = -ly;
-    this.updateRobotBodies();
+    return this.measureStatics();
+  }
+
+  /** Half the robot's extent along x (= along y) at its current heading: 70 axis-aligned, ~99 at 45°. */
+  private borderExtent(): number {
+    const b = this.robotBox;
+    return this.half * (Math.abs(b.c) + Math.abs(b.s));
+  }
+
+  /** Deepest current overlap of the robot with walls, immovable objects or the border (0 if none). */
+  private measureStatics(): number {
+    const r = this.state.robot, hit = this.hit, statics = this.statics, box = this.robotBox;
+    let worst = 0;
+    for (let k = 0; k < statics.length; k++) {
+      if (collide(box, statics[k], hit) && hit.depth > worst) worst = hit.depth;
+    }
+    const e = this.borderExtent();
+    const ox = Math.abs(r.x) + e - this.halfW, oy = Math.abs(r.y) + e - this.halfH;
+    if (ox > worst) worst = ox;
+    if (oy > worst) worst = oy;
+    return worst;
   }
 
   private contactNow = false;
@@ -502,9 +558,9 @@ export class Engine {
     const ux = clean(Math.sin(rad)), uy = clean(Math.cos(rad));
     const PAD = 2, FRONT = 0.5;
     let touchNow = false, still = false, bumper = false;
-    const statics = this.statics, c = this.robotCircle;
+    const statics = this.statics, box = this.robotBox;
     for (let k = 0; k < statics.length; k++) {
-      if (collide(c, statics[k], hit, PAD)) {
+      if (collide(box, statics[k], hit, PAD)) {
         still = true;
         if (hit.depth > PAD - 1) {
           touchNow = true;
@@ -513,7 +569,8 @@ export class Engine {
       }
     }
     // border (outward normals +x, -x, +y, -y)
-    const gx = this.halfW - this.half, gy = this.halfH - this.half;
+    const ext = this.borderExtent();
+    const gx = this.halfW - ext, gy = this.halfH - ext;
     for (let k = 0; k < 4; k++) {
       const gap = k === 0 ? gx - r.x : k === 1 ? gx + r.x : k === 2 ? gy - r.y : gy + r.y;
       if (gap >= PAD) continue;

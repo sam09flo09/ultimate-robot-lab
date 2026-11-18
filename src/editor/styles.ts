@@ -63,7 +63,15 @@ export const EDITOR_CSS = `
 .le-goal.le-bad{border-color:#D63B2F}
 .le-goal-head{display:flex;align-items:center;gap:6px;margin-bottom:6px}
 .le-goal-head b{font:700 11px var(--le-mono);color:var(--le-deep)}
-.le-goal-head select{flex:1}
+.le-goal>select{margin-bottom:6px}
+.le-btn.le-move{min-width:40px;min-height:40px;padding:0;font-size:13px;border-radius:8px}
+.le-row.le-zrow{flex-wrap:nowrap}
+.le-zrow select{flex:1 1 auto;width:auto;min-width:0}
+.le-zrow .le-btn{flex:0 0 auto}
+.le-zoom{position:absolute;right:10px;bottom:10px;z-index:4;display:flex;align-items:center;gap:4px;padding:4px;
+  border:2px solid var(--le-ink);border-radius:12px;background:rgba(255,253,249,.94)}
+.le-btn.le-zbtn{padding:0 10px;font-weight:700;font-size:16px}
+.le-zoom-label{min-width:46px;text-align:center;font:600 11px var(--le-mono)}
 .le-issues{flex:0 0 auto;max-height:132px;overflow-y:auto;border-top:2px solid var(--le-ink);padding:6px 10px;background:var(--le-cream)}
 .le-issue{display:flex;gap:6px;align-items:flex-start;width:100%;text-align:left;border:0;background:none;padding:3px 0;font-size:12px;cursor:default}
 .le-issue[data-target]{cursor:pointer}

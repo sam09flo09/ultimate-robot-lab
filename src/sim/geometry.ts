@@ -106,8 +106,11 @@ function projRadius(b: Body, nx: number, ny: number): number {
   return b.hx * Math.abs(b.c * nx + b.s * ny) + b.hy * Math.abs(-b.s * nx + b.c * ny);
 }
 
-/** SAT for two boxes; normal from a to b. */
-function boxBox(a: Body, b: Body, out: Hit): boolean {
+/**
+ * SAT for two boxes; normal from a to b. `pad` is added to the overlap on every
+ * axis, so a hit with pad means "the face-axis gap is smaller than pad".
+ */
+function boxBox(a: Body, b: Body, out: Hit, pad: number): boolean {
   const dx = b.x - a.x, dy = b.y - a.y;
   let best = Infinity, bnx = 0, bny = 0;
   for (let i = 0; i < 4; i++) {
@@ -117,7 +120,7 @@ function boxBox(a: Body, b: Body, out: Hit): boolean {
     else if (i === 2) { nx = b.c; ny = b.s; }
     else { nx = -b.s; ny = b.c; }
     const dist = dx * nx + dy * ny;
-    const ov = projRadius(a, nx, ny) + projRadius(b, nx, ny) - Math.abs(dist);
+    const ov = projRadius(a, nx, ny) + projRadius(b, nx, ny) + pad - Math.abs(dist);
     if (ov <= 0) return false;
     if (ov < best) {
       best = ov;
@@ -130,7 +133,8 @@ function boxBox(a: Body, b: Body, out: Hit): boolean {
 
 /**
  * Overlap test between two bodies. On overlap writes the separation normal
- * (unit, pointing FROM a TO b) and penetration depth. `pad` inflates a.
+ * (unit, pointing FROM a TO b) and penetration depth. `pad` is a contact margin:
+ * with pad > 0 a hit means "closer than pad" and depth = pad - gap.
  */
 export function collide(a: Body, b: Body, out: Hit, pad = 0): boolean {
   const dx = b.x - a.x, dy = b.y - a.y;
@@ -151,11 +155,7 @@ export function collide(a: Body, b: Body, out: Hit, pad = 0): boolean {
     return true;
   }
   if (b.kind === CIRCLE) return circleBox(b.x, b.y, b.r + pad, a, out);
-  if (pad === 0) return boxBox(a, b, out);
-  a.hx += pad; a.hy += pad;
-  const hit = boxBox(a, b, out);
-  a.hx -= pad; a.hy -= pad;
-  return hit;
+  return boxBox(a, b, out, pad);
 }
 
 /** Ray (ox,oy)+t(dx,dy), |d|=1, against a body. Returns t >= 0 of first hit, or Infinity. */

@@ -34,6 +34,10 @@ export interface Renderer {
   resize(): void;
   /** Rebuild the cached static layer (call after editing a world object in place). */
   invalidate(): void;
+  /** Optional zoom/pan (used by the level editor). zoom 1 = whole field fits (the default view);
+   *  cx/cy = the world-mm point shown at the canvas centre. null resets to the default view.
+   *  draw(), toWorld() and toCanvas() all honour it. The main app never calls this. */
+  setView?(view: { zoom: number; cx: number; cy: number } | null): void;
 }
 
 // ---------------------------------------------------------------- python runtime
