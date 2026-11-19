@@ -1,0 +1,205 @@
+import type { Activity } from "../../core/activity";
+import { BUMPER_TEST, WALL_STOP_1, WALL_STOP_2 } from "./worlds";
+
+const SENSE_STARTER = [
+  "# Read the distance sensor and show the reading.",
+  "",
+  "def main():",
+  "    reading = distance.get_distance(MM)",
+  "    # Output the reading here",
+  "",
+  "start(main)",
+  "",
+].join("\n");
+
+export const a06InputAndOutput: Activity = {
+  format: "robot-lab-activity",
+  version: 1,
+  id: "a06-input-and-output",
+  title: "Input and output: sensors and screens",
+  summary: "Read sensors (input), show results (output), and stop before a wall wherever it is.",
+  level: "core",
+  minutes: 40,
+  standards: [
+    "TEKS (d)(5)(A)",
+    "TEKS (d)(9)(C)",
+    "YouScience Std 5 Obj 3.3",
+    "YouScience Std 5 Obj 1.4",
+    "YouScience Std 5 Obj 1.6",
+  ],
+  steps: [
+    {
+      id: "in-or-out",
+      title: "In or out?",
+      world: { custom: WALL_STOP_1 },
+      body: [
+        "Every program takes **input**, does some **processing**, and makes **output**.",
+        "- **Input** is information coming **into** the program. On a robot, inputs are mostly **sensors**: `distance.get_distance(MM)`, `bumper.pressed()`, `front_eye.color()`, `down_eye.detect(BLACK)`, `location.position(X, MM)`.",
+        "- **Output** is what the program sends **out**: text with `print(...)` (to the log) or `brain.screen.print(...)` (to the robot's screen), and also motion: motors are outputs too.",
+        "In a flowchart, input and output steps are drawn as a **parallelogram** (a slanted box). Decisions are diamonds; processing steps are rectangles.",
+      ].join("\n\n"),
+      checks: [],
+      quiz: [
+        {
+          prompt: "Which of these is an **input**?",
+          choices: ["`print(\"Hello\")`", "`distance.get_distance(MM)`", "`brain.screen.print(42)`", "`pen.move(DOWN)`"],
+          answer: 1,
+          explain: "The distance sensor brings information **into** the program. The others send something out.",
+        },
+        {
+          prompt: "Which of these is an **output**?",
+          choices: ["`bumper.pressed()`", "`down_eye.color()`", "`brain.screen.print(\"Hi\")`", "`location.position(Y, MM)`"],
+          answer: 2,
+          explain: "Printing to the screen sends information out to a person. The others read sensors.",
+        },
+        {
+          prompt: "In a flowchart, what shape is used for \"Read the distance sensor\"?",
+          choices: ["Oval", "Rectangle", "Diamond", "Parallelogram"],
+          answer: 3,
+          explain: "Input and output steps are parallelograms. Ovals are start/end, diamonds are decisions.",
+        },
+      ],
+      hints: ["Input = into the program. Output = out of the program.", "Sensors are the robot's senses: they take things in."],
+      done: "Sensors in, screens and motors out.",
+    },
+    {
+      id: "show-reading",
+      title: "Show a sensor reading",
+      starter: { mode: "python", python: SENSE_STARTER },
+      body: [
+        "The starter reads the distance sensor and stores the answer in a variable called `reading`.",
+        "Now **output** it, two ways:",
+        "- `print(\"Distance:\", reading)` writes it in the log.",
+        "- `brain.screen.print(reading)` writes it on the robot's screen.",
+        "Run it. How far away is the wall, in mm? Remember that number, because in a later step the wall **will** move!",
+      ].join("\n\n"),
+      checks: [
+        { kind: "readsSensor", label: "Read a sensor" },
+        { kind: "printsOutput", label: "Output something" },
+        { kind: "logContains", text: "Distance:", label: "Print `Distance:` and the reading" },
+      ],
+      hints: [
+        "Add a line inside main, under `reading = ...`, indented 4 spaces.",
+        "```python\n    print(\"Distance:\", reading)\n    brain.screen.print(reading)\n```",
+      ],
+      done: "Input (sensor) → stored in a variable → output (print). That's the input/output pattern.",
+    },
+    {
+      id: "stop-before-wall",
+      title: "Stop before the wall",
+      body: [
+        "Drive toward the wall and **stop in the yellow zone** without touching the wall. Use the sensor, not a fixed distance:",
+        "```python\nwhile distance.get_distance(MM) > 100:\n    drivetrain.drive_for(FORWARD, 20, MM)\n```",
+        "Read it like a flowchart:",
+        "- **Input:** read the distance.",
+        "- **Decision:** is it more than 100 mm?",
+        "- **Yes:** drive forward a little, then go back and read again.",
+        "- **No:** leave the loop. You've arrived.",
+        "After the loop, print `\"Arrived!\"`.",
+      ].join("\n\n"),
+      checks: [
+        { kind: "readsSensor", label: "Read the distance sensor" },
+        { kind: "usesLoop", loop: "while", label: "Use a `while` loop" },
+        { kind: "goalsComplete", label: "Stop in the zone without touching the wall" },
+      ],
+      hints: [
+        "Put the while loop inside main. The drive line inside the loop needs 8 spaces.",
+        "If the robot hits the wall, the number in the condition is too small. If it stops before the yellow zone, it's too big.",
+        "```python\ndef main():\n    while distance.get_distance(MM) > 100:\n        drivetrain.drive_for(FORWARD, 20, MM)\n    print(\"Arrived!\")\n\nstart(main)\n```",
+      ],
+      done: "The robot used input to decide when to stop. It didn't need to know the distance in advance.",
+    },
+    {
+      id: "wall-moved",
+      title: "The wall moved!",
+      world: { custom: WALL_STOP_2 },
+      body: [
+        "This course is different: the wall is much closer. **Don't change your code.** Just press Run.",
+        "If your program used the sensor, it still works. If it used a fixed number like `drive_for(FORWARD, 1100, MM)`, it crashes.",
+        "This is why robots read sensors: the world isn't always where you expect it.",
+      ].join("\n\n"),
+      checks: [
+        { kind: "readsSensor", label: "Read the distance sensor" },
+        { kind: "goalsComplete", label: "Stop in the zone without touching the wall" },
+      ],
+      hints: [
+        "If it crashed, go back to the idea from the last step: loop while the distance is more than 100.",
+        "Your loop condition should read the sensor every time round: `while distance.get_distance(MM) > 100:`",
+      ],
+      done: "Same code, different world, still correct. That's a well-tested program.",
+    },
+    {
+      id: "bumper",
+      title: "Feel the wall with the bumper",
+      world: { custom: BUMPER_TEST },
+      starter: {
+        mode: "python",
+        python: [
+          "# Drive until the bumper touches the wall, then back up.",
+          "",
+          "def main():",
+          "    drivetrain.drive(FORWARD)",
+          "    # wait here until the bumper is pressed",
+          "    drivetrain.stop()",
+          "",
+          "start(main)",
+          "",
+        ].join("\n"),
+      },
+      body: [
+        "The **bumper** is another input. `bumper.pressed()` is `True` while the front of the robot is touching something.",
+        "The starter starts driving with `drivetrain.drive(FORWARD)`, which keeps going until you stop it. Your job:",
+        "- **Wait** until the bumper is pressed: `while not bumper.pressed():` with `wait(20, MSEC)` inside.",
+        "- After `drivetrain.stop()`, print `\"Bump!\"`.",
+        "- Then reverse 300 mm into the green zone.",
+        "(Touching the wall is allowed in this course.)",
+      ].join("\n\n"),
+      checks: [
+        { kind: "readsSensor", label: "Read the bumper" },
+        { kind: "logContains", text: "Bump!", label: "Print `Bump!`" },
+        { kind: "goalsComplete", label: "Touch the wall, then back into the green zone" },
+      ],
+      hints: [
+        "`not` flips True and False. `while not bumper.pressed():` means \"while the bumper is NOT pressed\".",
+        "The loop body can be a short wait so the robot keeps driving: `wait(20, MSEC)`.",
+        "```python\ndef main():\n    drivetrain.drive(FORWARD)\n    while not bumper.pressed():\n        wait(20, MSEC)\n    drivetrain.stop()\n    print(\"Bump!\")\n    drivetrain.drive_for(REVERSE, 300, MM)\n\nstart(main)\n```",
+      ],
+      done: "Input (bumper) → decision (pressed yet?) → output (stop, print, reverse).",
+    },
+    {
+      id: "flowchart-words",
+      title: "Flowchart it",
+      body: [
+        "Here's a plan for a robot written as a flowchart in words:",
+        "- **Start**",
+        "- **Input:** read the distance sensor",
+        "- **Decision:** is the distance less than 200 mm?",
+        "- **Yes →** Output: print \"Too close!\" and turn right 90 degrees",
+        "- **No →** Output: drive forward 50 mm",
+        "- Go back to the input step",
+      ].join("\n"),
+      checks: [],
+      quiz: [
+        {
+          prompt: "Which Python shape matches this flowchart?",
+          choices: [
+            "A `for` loop with `range(200)`",
+            "A `while` loop containing an `if`/`else` that reads the sensor",
+            "Just one `drive_for` line",
+            "A `print` with no loop",
+          ],
+          answer: 1,
+          explain: "\"Go back to the input step\" is a loop. The diamond is an `if`/`else`.",
+        },
+        {
+          prompt: "In this flowchart, which step is an **input**?",
+          choices: ["Print \"Too close!\"", "Read the distance sensor", "Turn right 90 degrees", "Start"],
+          answer: 1,
+          explain: "Reading the sensor brings information in.",
+        },
+      ],
+      hints: ["A flowchart arrow that goes back up means a loop.", "The diamond (yes/no question) becomes an `if`."],
+      done: "You can turn a flowchart into code and code into a flowchart. Next: decisions with if and else.",
+    },
+  ],
+};

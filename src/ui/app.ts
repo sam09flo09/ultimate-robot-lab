@@ -18,6 +18,15 @@ import {
 } from "./files";
 import { squareText, facingText, goalText, starterFor, DEFAULT_TEMPLATE } from "./status";
 import { HELP_HTML } from "./help";
+// activities (guided lessons) — src/activities
+import type { Activity } from "../core/activity";
+import { createActivityPanel, type ActivityPanel } from "../activities/panel";
+import { openCatalogue, isCatalogueOpen } from "../activities/catalogue";
+import { createActivityAuthor } from "../activities/author";
+import { toActivityFile } from "../activities/activityFile";
+import { BUILT_INS, getBuiltIn } from "../activities/builtins";
+import { loadImported, saveImported, removeImported, loadCurrentId, clearProgress, loadProgress } from "../activities/progress";
+import { ACTIVITY_EXT } from "./files";
 
 type Mode = "blocks" | "python";
 type MsgKind = "ok" | "info" | "err";
@@ -92,6 +101,10 @@ export function startApp(): void {
   let pendingScreen: string[] | null = null;
   const screenLines: string[] = [""];
   let lastGoalsKey = "";
+  // activities
+  let activity: ActivityPanel | null = null;
+  let lockedMode: Mode | null = null;
+  const runPrints: string[] = [];
   const previous = readAutosave(knownWorld); // last session's project, offered via "Restore last project"
 
   const renderer: Renderer = createRenderer(canvas);
@@ -108,7 +121,7 @@ export function startApp(): void {
 
   const pyEditor: PythonEditor = createPythonEditor($("pyHost"), {
     doc: starterFor(world), label: "Python code",
-    onChange: () => { if (!running) pyEditor.mark(0, "run"); scheduleAutosave(); },
+    onChange: () => { if (!running) pyEditor.mark(0, "run"); scheduleAutosave(); activity?.onCodeChange(); },
     onRun: () => void run(),
   });
 
@@ -120,7 +133,7 @@ export function startApp(): void {
     hardware: hw(world),
     onChange: () => {
       if (!running) { safe(() => blocks.highlightLine(0)); genEditor?.mark(0, "run"); }
-      scheduleAutosave(); refreshGenerated();
+      scheduleAutosave(); refreshGenerated(); activity?.onCodeChange();
     },
   });
   const blankBlocksState: unknown = safe(() => deepCopy(blocks.getState())) ?? null;
@@ -140,7 +153,7 @@ export function startApp(): void {
     runner = createPythonRunner({
       controller: sim.controller,
       onLine: (line) => { pendingLine = line; },
-      onLog: (e) => { pendingLogs.push(e); },
+      onLog: (e) => { pendingLogs.push(e); if (e.kind === "print" && runPrints.length < 500) runPrints.push(String(e.text)); },
       onScreen: (op) => {
         if (op.kind === "clear") { screenLines.length = 0; screenLines.push(""); }
         else if (op.kind === "newline") screenLines.push("");
@@ -332,6 +345,7 @@ export function startApp(): void {
     if (celebrated) return;
     celebrated = true;
     lastGoalsKey = ""; renderGoals();
+    setText($("celTitle"), "Challenge complete!");
     setText($("celText"), `${world.name} — done in ${time.toFixed(1)} s of robot time.`);
     $("celebrate").hidden = false;
     ($("celClose") as HTMLButtonElement).focus({ preventScroll: true });
@@ -370,7 +384,8 @@ export function startApp(): void {
     running = on;
     app.classList.toggle("is-running", on);
     runBtn.disabled = on; stopBtn.disabled = !on; resetBtn.disabled = on;
-    worldBtn.disabled = on; modeBlocksBtn.disabled = on; modePythonBtn.disabled = on;
+    worldBtn.disabled = on; modeBlocksBtn.disabled = on || !!lockedMode; modePythonBtn.disabled = on || !!lockedMode;
+    ($("actBtn") as HTMLButtonElement).disabled = on;
     for (const id of ["mNew", "mOpen", "mTeacher"]) ($(id) as HTMLButtonElement).disabled = on;
     pyEditor.setReadOnly(on);
     safe(() => blocks.setReadOnly(on));
@@ -387,7 +402,7 @@ export function startApp(): void {
   }
 
   async function run(): Promise<void> {
-    if (running || isDialogOpen() || !$("teacher").hidden) return;
+    if (running || isDialogOpen() || isCatalogueOpen() || !$("teacher").hidden) return;
     if (typeof (window as unknown as { Sk?: unknown }).Sk === "undefined") {
       showMsg("err", "The Python engine did not load. Reload the page (it works offline once it has loaded one time).");
       return;
@@ -398,6 +413,7 @@ export function startApp(): void {
     if (autoReset.checked) resetRobot();
     celebrated = false; $("celebrate").hidden = true;
     setRunning(true);
+    runPrints.length = 0;
     let result: RunResult;
     try {
       result = await runner.run(src);
@@ -411,6 +427,16 @@ export function startApp(): void {
     redraw();
     lastGoalsKey = ""; renderGoals();
     finishMessage(result);
+    if (activity?.active) {
+      const goals = safe(() => sim.evaluateGoals()) ?? [];
+      const st = sim.state;
+      const sq = world.background === "numberGrid" ? parseInt(squareText(world, st.robot.x, st.robot.y), 10) : NaN;
+      activity.onRun({
+        result, goalsAllPassed: goals.length > 0 && goals.every((g) => g.passed),
+        finalSquare: Number.isFinite(sq) ? sq : null,
+        output: [...runPrints, ...screenLines.filter((l) => l !== "")],
+      });
+    }
   }
 
   function finishMessage(r: RunResult): void {
@@ -593,10 +619,11 @@ export function startApp(): void {
       worldId,
       customWorld: worldId === "custom" ? customWorld : null,
       savedAt: new Date().toISOString(),
+      activity: activity?.embed() ?? null,
     };
   }
 
-  function loadProject(p: ProjectFile, extra: { pythonText?: string; blocksState?: unknown } = {}): string[] {
+  function loadProject(p: ProjectFile, extra: { pythonText?: string; blocksState?: unknown; activityReview?: boolean } = {}): string[] {
     const warnings: string[] = [];
     if (running) stop();
     let w: World | undefined;
@@ -620,6 +647,8 @@ export function startApp(): void {
     mode = p.mode;
     applyModeUI();
     renderWorldMenu();
+    if (p.activity) activity?.start(p.activity.activity, { progress: p.activity.progress, applyStep: false, review: !!extra.activityReview });
+    else if (activity?.active) activity.leave();
     scheduleAutosave();
     return warnings;
   }
@@ -648,14 +677,32 @@ export function startApp(): void {
   async function openFile(): Promise<void> {
     if (running) return;
     let f: { name: string; text: string } | null;
-    try { f = await pickFile(`${PROJECT_EXT},${LEVEL_EXT},.json,application/json`); }
+    try { f = await pickFile(`${PROJECT_EXT},${LEVEL_EXT},${ACTIVITY_EXT},.json,application/json`); }
     catch (e) { showMsg("err", esc((e as Error).message)); return; }
     if (!f) return;
     let opened;
     try { opened = parseFileText(f.text, knownWorld); }
     catch (e) { showMsg("err", `<b>Couldn't open ${esc(f.name)}.</b><br>${esc((e as Error).message)}`); return; }
-    if (opened.kind === "project") {
-      const warnings = loadProject(opened.project).concat(opened.warnings);
+    if (opened.kind === "activity") {
+      startImported(opened.activity, opened.warnings);
+    } else if (opened.kind === "project") {
+      // A teacher opening a student's file must not overwrite the teacher's own progress here.
+      let activityReview = false;
+      const pa = opened.project.activity;
+      if (pa) {
+        const local = loadProgress(pa.activity);
+        const same = !!local && local.stepIndex === pa.progress.stepIndex
+          && [...local.completed].sort().join("|") === [...pa.progress.completed].sort().join("|");
+        if (local && !same) {
+          const choice = await ask("This file has its own activity progress",
+            `<p><b>${esc(opened.project.name)}</b> is at a different point in <b>${esc(pa.activity.title)}</b> than this Chromebook.</p>
+             <p><b>Just look</b> shows the file's progress without changing yours (use this when checking a student's work).
+             <b>Continue from this file</b> replaces the progress saved here.</p>`,
+            [{ id: "review", label: "Just look", kind: "primary" }, { id: "continue", label: "Continue from this file" }]);
+          activityReview = choice !== "continue";
+        }
+      }
+      const warnings = loadProject(opened.project, { activityReview }).concat(opened.warnings);
       fileHandle = null;
       showMsg(warnings.length ? "info" : "ok", `Opened <b>${esc(opened.project.name)}</b>.` + warnings.map((w) => "<br>" + esc(w)).join(""));
     } else {
@@ -789,6 +836,137 @@ export function startApp(): void {
       [{ id: "ok", label: "Got it", kind: "primary" }]);
   });
 
+  // ------------------------------------------------------------ activities (guided lessons, src/activities)
+  const modeTitles = { blocks: modeBlocksBtn.title, python: modePythonBtn.title };
+  function setLock(m: Mode | null): void {
+    lockedMode = m;
+    modeBlocksBtn.disabled = running || !!m; modePythonBtn.disabled = running || !!m;
+    const why = m ? `This activity step uses ${m === "python" ? "Python" : "Blocks"}.` : "";
+    modeBlocksBtn.title = why || modeTitles.blocks;
+    modePythonBtn.title = why || modeTitles.python;
+    $("modeBlocks").parentElement!.classList.toggle("locked", !!m);
+  }
+  function sameWorld(a: World, b: World): boolean {
+    try { return JSON.stringify(a) === JSON.stringify(b); } catch { return false; }
+  }
+  activity = createActivityPanel($("activityHost"), {
+    getPython: () => (mode === "blocks" ? safeGetPython() : pyEditor.getText()),
+    getMode: () => mode,
+    setMode: (m) => { if (m !== mode) void setMode(m, false); },
+    setLock,
+    loadWorld: (spec) => {
+      if (running) return;
+      if ("playground" in spec) {
+        const w = getPlayground(spec.playground);
+        if (!w) { showMsg("info", `This step uses a playground (<b>${esc(spec.playground)}</b>) that isn't in this version of Robot Lab.`); return; }
+        if (worldId === w.id) { resetRobot(); return; }
+        setWorld(w, w.id, { offerStarter: false });
+      } else {
+        const w: World = { ...sanitizeWorld(spec.custom).world, id: "custom" };
+        if (worldId === "custom" && customWorld && sameWorld(customWorld, w)) { resetRobot(); return; }
+        customWorld = w;
+        setWorld(w, "custom", { offerStarter: false });
+      }
+    },
+    isPythonUntouched: () => isPythonUnchanged(world),
+    getPythonText: () => pyEditor.getText(),
+    setPython: (t) => pyEditor.setText(t),
+    isBlocksUntouched: () => safeGetPython() === blankBlocksPython,
+    setBlocks: (st) => {
+      try { blocks.setState(st ?? blankBlocksState); return true; }
+      catch (e) { console.error(e); safe(() => blocks.setState(blankBlocksState)); return false; }
+    },
+    showMsg, clearMsg,
+    celebrate: (title, text) => {
+      setText($("celTitle"), title); setText($("celText"), text);
+      $("celebrate").hidden = false;
+      ($("celClose") as HTMLButtonElement).focus({ preventScroll: true });
+    },
+    isRunning: () => running,
+    changed: () => scheduleAutosave(),
+    layout: () => requestAnimationFrame(() => safe(() => blocks.resize())),
+  });
+
+  const findActivity = (id: string): Activity | undefined => getBuiltIn(id) ?? loadImported().find((a) => a.id === id);
+  function startActivity(a: Activity, opts: { preview?: boolean } = {}): void {
+    if (running) return;
+    activity!.start(a, { preview: opts.preview, applyStep: true });
+  }
+  function startImported(a: Activity, warnings: string[] = []): void {
+    if (!saveImported(a)) warnings.push("This browser couldn't keep a copy of the activity, so open the file again next time.");
+    startActivity(a);
+    toast(`Activity: ${a.title}`, 3000);
+    if (warnings.length) showMsg("info", `Opened the activity <b>${esc(a.title)}</b>.` + warnings.map((w) => "<br>" + esc(w)).join(""));
+  }
+  function showCatalogue(): void {
+    if (running) return;
+    openCatalogue({
+      builtIns: BUILT_INS, imported: loadImported(), currentId: activity?.state()?.preview ? null : activity?.state()?.activityId ?? null,
+      onStart: (a) => startActivity(a),
+      onOpenFile: () => void openActivityFile(),
+      onRemove: (a) => { removeImported(a.id); clearProgress(a.id); if (activity?.state()?.activityId === a.id) activity.leave(); },
+    });
+  }
+  async function openActivityFile(): Promise<void> {
+    if (running) return;
+    let f: { name: string; text: string } | null;
+    try { f = await pickFile(`${ACTIVITY_EXT},${PROJECT_EXT},${LEVEL_EXT},.json,application/json`); }
+    catch (e) { showMsg("err", esc((e as Error).message)); return; }
+    if (!f) return;
+    let opened;
+    try { opened = parseFileText(f.text, knownWorld); }
+    catch (e) { showMsg("err", `<b>Couldn't open ${esc(f.name)}.</b><br>${esc((e as Error).message)}`); return; }
+    if (opened.kind !== "activity") { showMsg("err", `<b>${esc(f.name)}</b> isn't an activity file. Use <b>File → Open…</b> for projects and challenges.`); return; }
+    startImported(opened.activity, opened.warnings);
+  }
+  $("actBtn").addEventListener("click", showCatalogue);
+  $("mOpenAct").addEventListener("click", () => void openActivityFile());
+
+  // teacher: Level / Activity switch + authoring form
+  let author: ReturnType<typeof createActivityAuthor> | null = null;
+  let actHandle: FileHandle = null;
+  function teacherTab(which: "level" | "activity"): void {
+    const act = which === "activity";
+    $("tTabLevel").setAttribute("aria-checked", String(!act));
+    $("tTabAct").setAttribute("aria-checked", String(act));
+    $("teacherHost").hidden = act; $("teacherActHost").hidden = !act;
+    for (const id of ["tTest", "tSave", "tShare"]) $(id).hidden = act;
+    setText($("teacherTitle"), act ? "Teacher · Activity maker" : "Teacher · Challenge maker");
+    if (act && !author) {
+      author = createActivityAuthor($("teacherActHost"), {
+        playgrounds: playgrounds.map((w) => ({ id: w.id, name: w.name })),
+        getLevelWorld: () => checkedLevel() ?? readLevelDraft(),
+        preview: (a) => {
+          closeTeacher();
+          startActivity(a, { preview: true });
+          toast("Previewing your activity as a student. Open File → Teacher to keep editing.", 4500);
+        },
+        save: async (a) => {
+          const name = fileStem(a.title) + ACTIVITY_EXT;
+          const r = await saveText({ text: toActivityFile(a), suggestedName: name, mime: "application/json", ext: ACTIVITY_EXT, description: "Robot Lab activity", handle: actHandle });
+          if (!r.ok) return;
+          actHandle = r.handle;
+          toast(r.how === "picker" ? `Saved ${r.fileName ?? name}` : `Downloaded ${name}`, 4000);
+        },
+        open: async () => {
+          let f: { name: string; text: string } | null;
+          try { f = await pickFile(`${ACTIVITY_EXT},.json,application/json`); } catch { return null; }
+          if (!f) return null;
+          try {
+            const o = parseFileText(f.text, knownWorld);
+            if (o.kind === "activity") { actHandle = null; return o.activity; }
+            throw new Error("That isn't an activity file.");
+          } catch (e) {
+            void ask("Couldn't open the activity", `<p>${esc((e as Error).message)}</p>`, [{ id: "ok", label: "OK", kind: "primary" }]);
+            return null;
+          }
+        },
+      });
+    }
+  }
+  $("tTabLevel").addEventListener("click", () => teacherTab("level"));
+  $("tTabAct").addEventListener("click", () => teacherTab("activity"));
+
   // ------------------------------------------------------------ keyboard
   document.addEventListener("keydown", (e) => {
     if (e.defaultPrevented || isDialogOpen()) return;
@@ -815,6 +993,18 @@ export function startApp(): void {
   updateTitle();
   schedule();
 
+  // activities: continue the activity that was open before a reload
+  {
+    const curId = loadCurrentId();
+    const cur = curId ? findActivity(curId) : undefined;
+    if (cur && previous?.project.activity?.activity.id === cur.id) {
+      loadProject(previous.project, { pythonText: previous.pythonText, blocksState: previous.blocksState });
+      restoreBtn.hidden = true; mRestore.hidden = true;
+    } else if (cur) {
+      activity.start(cur, { applyStep: !previous || previousIsBlank });
+    }
+  }
+
   // Test hook (for automated checks; harmless for students).
   (window as unknown as Record<string, unknown>).__robotLab = {
     run, stop, reset: resetRobot, setMode: (m: Mode) => setMode(m, false),
@@ -822,5 +1012,8 @@ export function startApp(): void {
     load: (text: string) => { const o = parseFileText(text, knownWorld); if (o.kind === "project") loadProject(o.project); return o.kind; },
     state: () => ({ running, mode, worldId, robot: { ...sim.state.robot }, msg: msgEl.textContent, log: Array.from(logEl.children).map((l) => l.textContent) }),
     speed: (v: number) => { speed = v; },
+    // activities
+    startActivity: (id: string) => { const a = findActivity(id); if (a) startActivity(a); return !!a; },
+    activityState: () => activity?.state() ?? null,
   };
 }

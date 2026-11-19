@@ -1,0 +1,211 @@
+import { beforeAll, describe, expect, it } from "vitest";
+import type { Activity, ActivityStep } from "../../core/activity";
+import type { World } from "../../core/types";
+import { getPlayground } from "../../worlds";
+import { sanitizeWorld, validateWorld } from "../../editor";
+import { loadSkulpt } from "../../runtime/testkit";
+import { checkStep, isRunCheck } from "../checks";
+import { sanitizeActivity } from "../activityFile";
+import { BUILT_IN_ACTIVITIES, getBuiltInActivity } from "./index";
+import { SOLUTIONS } from "./solutions";
+import { CUSTOM_WORLDS } from "./worlds";
+import { runSolution, squareAt } from "./runSolution";
+
+beforeAll(() => loadSkulpt());
+
+/** The world each step runs in (a step without `world` keeps the previous step's). */
+function stepWorlds(a: Activity): World[] {
+  const out: World[] = [];
+  let cur: World | undefined;
+  for (const s of a.steps) {
+    if (s.world) {
+      cur = "playground" in s.world ? getPlayground(s.world.playground) : s.world.custom;
+    }
+    if (!cur) throw new Error(`${a.id}/${s.id}: no world`);
+    out.push(cur);
+  }
+  return out;
+}
+
+const correctAnswers = (s: ActivityStep) => (s.quiz ?? []).map((q) => q.answer);
+
+async function checkRun(step: ActivityStep, world: World, python: string) {
+  const run = await runSolution(world, python);
+  const goals = run.sim.evaluateGoals();
+  const finalSquare = world.background === "numberGrid" ? squareAt(world, run.sim.state.robot.x, run.sim.state.robot.y) : null;
+  const res = checkStep(step, {
+    python,
+    quizAnswers: correctAnswers(step),
+    starterPython: step.starter?.python,
+    lastRun: run.result
+      ? { result: run.result, goalsAllPassed: goals.length > 0 && goals.every((g) => g.passed), finalSquare, output: run.log }
+      : null,
+  });
+  return { run, goals, finalSquare, res };
+}
+
+describe("built-in activities: format", () => {
+  it("has about 10 activities with unique ids in a01.. order", () => {
+    expect(BUILT_IN_ACTIVITIES.length).toBeGreaterThanOrEqual(8);
+    const ids = BUILT_IN_ACTIVITIES.map((a) => a.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    ids.forEach((id, i) => expect(id.startsWith(`a${String(i + 1).padStart(2, "0")}-`), id).toBe(true));
+    for (const a of BUILT_IN_ACTIVITIES) expect(getBuiltInActivity(a.id)).toBe(a);
+  });
+
+  for (const a of BUILT_IN_ACTIVITIES) {
+    describe(a.id, () => {
+      it("has valid top-level fields", () => {
+        expect(a.format).toBe("robot-lab-activity");
+        expect(a.version).toBe(1);
+        expect(a.id).toMatch(/^[a-z0-9-]+$/);
+        expect(a.title.length).toBeGreaterThan(3);
+        expect(a.summary.length).toBeGreaterThan(10);
+        expect(["starter", "core", "stretch"]).toContain(a.level);
+        expect(a.minutes).toBeGreaterThanOrEqual(15);
+        expect(a.minutes).toBeLessThanOrEqual(45);
+        expect(a.standards.length).toBeGreaterThan(0);
+        for (const s of a.standards) expect(s).toMatch(/^(TEKS \(d\)\(\d+\)\([A-Z]\)|YouScience Std 5 Obj \d\.\d)$/);
+        expect(a.steps.length).toBeGreaterThanOrEqual(3);
+        expect(a.steps.length).toBeLessThanOrEqual(7);
+      });
+
+      it("has unique step ids, hints, and something to complete in every step", () => {
+        const ids = a.steps.map((s) => s.id);
+        expect(new Set(ids).size).toBe(ids.length);
+        for (const s of a.steps) {
+          expect(s.id, s.id).toMatch(/^[a-z0-9-]+$/);
+          expect(s.title.length, s.id).toBeGreaterThan(2);
+          expect(s.body.length, s.id).toBeGreaterThan(20);
+          expect(s.hints.length, s.id).toBeGreaterThanOrEqual(1);
+          expect(s.checks.length + (s.quiz?.length ?? 0), s.id).toBeGreaterThan(0);
+          for (const c of s.checks) expect(c.label.length, s.id).toBeGreaterThan(2);
+          if (s.starter?.mode === "python") expect(s.starter.python ?? "", s.id).toMatch(/start\(main\)\s*$/);
+        }
+      });
+
+      it("has well-formed quizzes", () => {
+        for (const s of a.steps) for (const q of s.quiz ?? []) {
+          expect(q.choices.length, q.prompt).toBeGreaterThanOrEqual(2);
+          expect(new Set(q.choices).size, q.prompt).toBe(q.choices.length);
+          expect(Number.isInteger(q.answer), q.prompt).toBe(true);
+          expect(q.answer, q.prompt).toBeGreaterThanOrEqual(0);
+          expect(q.answer, q.prompt).toBeLessThan(q.choices.length);
+          expect(q.explain.length, q.prompt).toBeGreaterThan(5);
+        }
+      });
+
+      it("uses worlds that exist (first step sets one)", () => {
+        expect(a.steps[0].world, "first step must set a world").toBeDefined();
+        for (const s of a.steps) {
+          if (s.world && "playground" in s.world) expect(getPlayground(s.world.playground), s.world.playground).toBeDefined();
+        }
+        expect(() => stepWorlds(a)).not.toThrow();
+      });
+
+      it("uses endsInSquare only on number-grid worlds", () => {
+        const worlds = stepWorlds(a);
+        a.steps.forEach((s, i) => {
+          if (s.checks.some((c) => c.kind === "endsInSquare")) expect(worlds[i].background, s.id).toBe("numberGrid");
+          if (s.checks.some((c) => c.kind === "goalsComplete")) expect(worlds[i].goals.length, s.id).toBeGreaterThan(0);
+        });
+      });
+
+      it("survives the activity-file sanitiser unchanged", () => {
+        const { activity, warnings } = sanitizeActivity(JSON.parse(JSON.stringify(a)), {
+          teacher: false,
+          knownPlayground: (id) => !!getPlayground(id),
+        });
+        expect(warnings).toEqual([]);
+        expect(activity.id).toBe(a.id);
+        expect(activity.steps.map((s) => s.id)).toEqual(a.steps.map((s) => s.id));
+        activity.steps.forEach((s, i) => {
+          expect(s.checks.length).toBe(a.steps[i].checks.length);
+          expect((s.quiz ?? []).length).toBe((a.steps[i].quiz ?? []).length);
+        });
+      });
+    });
+  }
+});
+
+describe("custom worlds", () => {
+  for (const w of CUSTOM_WORLDS) {
+    it(`${w.id} is a valid world`, () => {
+      const { world, warnings } = sanitizeWorld(JSON.parse(JSON.stringify(w)));
+      expect(warnings).toEqual([]);
+      expect(world.zones.map((z) => z.id)).toEqual(w.zones.map((z) => z.id));
+      expect(world.objects.map((o) => o.id)).toEqual(w.objects.map((o) => o.id));
+      expect(world.goals.length).toBe(w.goals.length);
+      const errors = validateWorld(w).filter((i) => i.level === "error");
+      expect(errors).toEqual([]);
+    });
+  }
+});
+
+describe("every checked step is completable with its reference solution", () => {
+  for (const a of BUILT_IN_ACTIVITIES) {
+    const worlds = stepWorlds(a);
+    a.steps.forEach((step, i) => {
+      if (step.checks.length === 0) return;
+      it(`${a.id} / ${step.id}`, async () => {
+        const python = SOLUTIONS[a.id]?.[step.id];
+        expect(python, "missing solution").toBeTypeOf("string");
+        const { run, goals, finalSquare, res } = await checkRun(step, worlds[i], python!);
+        expect(run.result, "did not finish in time").not.toBeNull();
+        expect(run.result!.status, JSON.stringify(run.result)).toBe("finished");
+        if (run.result!.status === "finished") expect(run.result!.startCalled).toBe(true);
+        if (step.checks.some((c) => c.kind === "goalsComplete")) {
+          expect(goals.filter((g) => !g.passed).map((g) => g.detail)).toEqual([]);
+        }
+        for (const c of step.checks) {
+          if (c.kind === "endsInSquare") expect(finalSquare).toBe(c.square);
+          if (c.kind === "logContains") expect(run.log.join("\n").toLowerCase()).toContain(c.text.toLowerCase());
+        }
+        expect(res.items.filter((x) => !x.passed)).toEqual([]);
+        expect(res.passed).toBe(true);
+      }, 120_000);
+    });
+  }
+
+  it("has no solutions for steps that don't exist", () => {
+    for (const [aid, steps] of Object.entries(SOLUTIONS)) {
+      const a = getBuiltInActivity(aid);
+      expect(a, aid).toBeDefined();
+      for (const sid of Object.keys(steps)) {
+        const s = a!.steps.find((x) => x.id === sid);
+        expect(s, `${aid}/${sid}`).toBeDefined();
+        expect(s!.checks.length, `${aid}/${sid}`).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+describe("starter code does not already complete its step", () => {
+  for (const a of BUILT_IN_ACTIVITIES) {
+    const worlds = stepWorlds(a);
+    a.steps.forEach((step, i) => {
+      const py = step.starter?.python;
+      if (!py || !step.checks.some(isRunCheck)) return;
+      it(`${a.id} / ${step.id}`, async () => {
+        const { res } = await checkRun(step, worlds[i], py);
+        expect(res.passed).toBe(false);
+      }, 120_000);
+    });
+  }
+
+  it("the debugging starters fail in the planned way", async () => {
+    const a = getBuiltInActivity("a08-debugging-detectives")!;
+    const worlds = stepWorlds(a);
+    const byId = (id: string) => a.steps.findIndex((s) => s.id === id);
+    const syntax = await runSolution(worlds[byId("syntax-bugs")], a.steps[byId("syntax-bugs")].starter!.python!);
+    expect(syntax.result?.status).toBe("error");
+    if (syntax.result?.status === "error") expect(syntax.result.error.type).toMatch(/Syntax/);
+    const names = await runSolution(worlds[byId("name-bugs")], a.steps[byId("name-bugs")].starter!.python!);
+    expect(names.result?.status).toBe("error");
+    if (names.result?.status === "error") expect(names.result.error.type).toMatch(/Name/);
+    const logic = await runSolution(worlds[byId("logic-bugs")], a.steps[byId("logic-bugs")].starter!.python!);
+    expect(logic.result?.status).toBe("finished");
+    const all = await runSolution(worlds[byId("all-bugs")], a.steps[byId("all-bugs")].starter!.python!);
+    expect(all.result?.status).toBe("error");
+  }, 120_000);
+});

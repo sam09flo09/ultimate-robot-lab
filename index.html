@@ -42,17 +42,33 @@
 
       <div class="spacer"></div>
 
+      <!-- activities --><button id="actBtn" class="btn" title="Guided lessons with steps, hints and checks">Activities</button>
+
       <div class="picker">
         <button id="fileBtn" class="btn" aria-haspopup="true">File ▾</button>
         <div id="fileMenu" class="pop pop-right" role="menu" aria-label="File" hidden>
           <button role="menuitem" id="mNew">New project</button>
           <button role="menuitem" id="mOpen">Open… <kbd>Ctrl+O</kbd></button>
+          <button role="menuitem" id="mOpenAct">Open activity…</button>
           <button role="menuitem" id="mSave">Save <kbd>Ctrl+S</kbd></button>
           <button role="menuitem" id="mSaveAs">Save as…</button>
           <button role="menuitem" id="mExport">Export Python (.py)</button>
           <button role="menuitem" id="mRestore" hidden>Restore last project</button>
           <hr>
-          <button role="menuitem" id="mTeacher">Teacher: make a challenge…</button>
+          <button role="menuitem" id="mTeacher">Teacher: make a challenge or activity…</button>
+        </div>
+      </div>
+      <div class="picker">
+        <button id="displayBtn" class="btn" aria-haspopup="true" aria-expanded="false" aria-controls="displayMenu" title="Text size and contrast" aria-label="Display options">Aa</button>
+        <div id="displayMenu" class="pop pop-right display-pop" role="dialog" aria-label="Display options" hidden>
+          <fieldset>
+            <legend>Text size</legend>
+            <label><input type="radio" name="textSize" value="normal"> Normal</label>
+            <label><input type="radio" name="textSize" value="large"> Large</label>
+            <label><input type="radio" name="textSize" value="larger"> Larger</label>
+          </fieldset>
+          <label class="display-contrast"><input type="checkbox" id="hiContrast"> High contrast</label>
+          <a class="display-privacy" href="./privacy.html" target="_blank" rel="noopener">Privacy &amp; IT notes</a>
         </div>
       </div>
       <button id="helpBtn" class="btn" aria-expanded="false" aria-controls="helpPanel">Help</button>
@@ -68,6 +84,8 @@
             <button id="showCodeBtn" class="btn btn-sm" aria-expanded="false" aria-controls="codeDrawer">Show code</button>
           </div>
         </div>
+        <!-- activities: guided-lesson panel (src/activities/panel.ts) -->
+        <div id="activityHost" class="act-panel" hidden></div>
         <div class="editor-wrap">
           <div id="blocksHost" class="blocks-host" aria-label="Blocks workspace"></div>
           <div id="pyHost" class="py-host" hidden></div>
@@ -99,7 +117,7 @@
           <div id="celebrate" class="celebrate" hidden role="alert">
             <div class="cel-card">
               <div class="cel-stars" aria-hidden="true"><span></span><span></span><span></span></div>
-              <h2>Challenge complete!</h2>
+              <h2 id="celTitle">Challenge complete!</h2>
               <p id="celText"></p>
               <button id="celClose" class="btn btn-primary">Nice!</button>
             </div>
@@ -150,6 +168,11 @@
   <div id="teacher" class="teacher" hidden role="dialog" aria-modal="true" aria-labelledby="teacherTitle">
     <header class="teacher-bar">
       <h2 id="teacherTitle">Teacher · Challenge maker</h2>
+      <!-- activities: Level / Activity switch -->
+      <div class="seg seg-dark" role="radiogroup" aria-label="What to make">
+        <button id="tTabLevel" class="seg-btn" role="radio" aria-checked="true">Level</button>
+        <button id="tTabAct" class="seg-btn" role="radio" aria-checked="false">Activity</button>
+      </div>
       <div class="spacer"></div>
       <button id="tTest" class="btn btn-primary">▶ Test this level</button>
       <button id="tSave" class="btn">Save level</button>
@@ -157,6 +180,7 @@
       <button id="tClose" class="btn" aria-label="Close the challenge maker">✕ Close</button>
     </header>
     <div id="teacherHost" class="teacher-host"></div>
+    <div id="teacherActHost" class="teacher-host act-author" hidden></div>
   </div>
 
   <div id="toasts" class="toasts" aria-live="polite"></div>

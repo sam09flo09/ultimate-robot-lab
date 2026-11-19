@@ -5,9 +5,13 @@
 import type { World } from "../core/types";
 import type { ProjectFile, LevelFile } from "../core/modules";
 import { sanitizeWorld, levelFileText } from "./modules";
+import type { Activity } from "../core/activity";
+import { sanitizeActivity, sanitizeEmbedded, ACTIVITY_EXT } from "../activities/activityFile";
+import { getBuiltIn } from "../activities/builtins";
 
 export const PROJECT_EXT = ".robolab";
 export const LEVEL_EXT = ".robolab-level";
+export { ACTIVITY_EXT };
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_CODE = 200_000;
 
@@ -28,7 +32,8 @@ function cleanWorld(raw: unknown, warnings: string[]): World {
 
 export type OpenedFile =
   | { kind: "project"; project: ProjectFile; warnings: string[] }
-  | { kind: "level"; level: LevelFile; warnings: string[] };
+  | { kind: "level"; level: LevelFile; warnings: string[] }
+  | { kind: "activity"; activity: Activity; warnings: string[] };
 
 /** Parse an untrusted file's text. Throws Error with a student-readable message. */
 export function parseFileText(text: string, knownWorld: (id: string) => boolean): OpenedFile {
@@ -41,7 +46,11 @@ export function parseFileText(text: string, knownWorld: (id: string) => boolean)
     const lw: string[] = [];
     return { kind: "level", level: { format: "robot-lab-level", version: 1, world: cleanWorld(d.world, lw) }, warnings: lw };
   }
-  if (d.format !== "robot-lab-project") fail("This file is not a Robot Lab project or level.");
+  if (d.format === "robot-lab-activity") {
+    const r = sanitizeActivity(d, { teacher: true, knownPlayground: knownWorld });
+    return { kind: "activity", activity: r.activity, warnings: r.warnings };
+  }
+  if (d.format !== "robot-lab-project") fail("This file is not a Robot Lab project, level or activity.");
   if (d.version !== 1) fail("This project was saved by a newer Robot Lab.");
   const warnings: string[] = [];
   const mode = d.mode === "blocks" ? "blocks" : "python";
@@ -60,6 +69,7 @@ export function parseFileText(text: string, knownWorld: (id: string) => boolean)
       name: cleanName(typeof d.name === "string" ? d.name : ""),
       mode, python, blocks, worldId, customWorld,
       savedAt: typeof d.savedAt === "string" ? d.savedAt.slice(0, 40) : "",
+      activity: sanitizeEmbedded(d.activity, getBuiltIn, warnings),
     },
   };
 }

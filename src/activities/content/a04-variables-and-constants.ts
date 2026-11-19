@@ -1,0 +1,166 @@
+import type { Activity } from "../../core/activity";
+
+const SQUARE_STARTER = [
+  "# Draw a square with sides of SIDE mm.",
+  "",
+  "def main():",
+  "    pen.set_pen_color(BLUE)",
+  "    pen.move(DOWN)",
+  "    # Your statements here",
+  "    pen.move(UP)",
+  "",
+  "start(main)",
+  "",
+].join("\n");
+
+const SPIRAL_STARTER = [
+  "# A spiral: every line is 100 mm longer than the one before.",
+  "",
+  "def main():",
+  "    length = 100",
+  "    pen.move(DOWN)",
+  "    drivetrain.drive_for(FORWARD, length, MM)",
+  "    drivetrain.turn_for(RIGHT, 90, DEGREES)",
+  "    # Make length bigger, then draw the next line...",
+  "",
+  "start(main)",
+  "",
+].join("\n");
+
+export const a04VariablesAndConstants: Activity = {
+  format: "robot-lab-activity",
+  version: 1,
+  id: "a04-variables-and-constants",
+  title: "Variables and constants",
+  summary: "Store numbers in names. Use a CONSTANT for a square's side, and a variable that grows to draw a spiral.",
+  level: "core",
+  minutes: 35,
+  standards: ["TEKS (d)(5)(A)", "YouScience Std 5 Obj 3.2", "YouScience Std 5 Obj 3.1", "YouScience Std 5 Obj 2.1"],
+  steps: [
+    {
+      id: "names-for-values",
+      title: "Names for values",
+      world: { playground: "sketch-pad" },
+      body: [
+        "A **variable** is a name that holds a value. You make one with `=`:",
+        "```python\nlength = 100          # declare and initialise: create length and give it its first value\nlength = length + 50  # assign a new value: length is now 150\n```",
+        "- **Initialise** means giving a variable its first value.",
+        "- **Assign** means storing a value with `=`. You can assign again later to change it.",
+        "- In Python, the first assignment also **declares** the variable. There's no `int` like in C++.",
+        "A **constant** is a value that should never change while the program runs. Python's convention (the rule everyone follows) is to write constants in `UPPER_CASE` at the top of the program:",
+        "```python\nSIDE = 300   # a constant\n```",
+        "Variables use `lower_case_with_underscores`, like `line_count`.",
+      ].join("\n\n"),
+      checks: [],
+      quiz: [
+        {
+          prompt: "Which name follows the Python convention for a **constant**?",
+          choices: ["`side`", "`Side`", "`SIDE_LENGTH`", "`sideLength`"],
+          answer: 2,
+          explain: "Constants are UPPER_CASE with underscores. (`sideLength` is the C++/Java style for variables.)",
+        },
+        {
+          prompt: "After these two lines run, what is in `length`?",
+          code: "length = 100\nlength = length + 50",
+          choices: ["100", "50", "150", "`length + 50`"],
+          answer: 2,
+          explain: "Python works out the right side first (100 + 50 = 150), then stores it back in `length`.",
+        },
+        {
+          prompt: "Why would calling your variable `distance` be a bad idea in Robot Lab?",
+          choices: [
+            "It's too long",
+            "`distance` is already the name of the distance sensor, so you'd hide the sensor",
+            "Variables can't be English words",
+            "It's a keyword",
+          ],
+          answer: 1,
+          explain: "If you write `distance = 100`, the name `distance` stops meaning the sensor. Pick a name that isn't used yet, like `length`.",
+        },
+      ],
+      hints: [
+        "Constants SHOUT. Variables whisper.",
+        "For the second question, work out the right side of `=` first.",
+      ],
+      done: "You know the difference between declaring, initialising and assigning.",
+    },
+    {
+      id: "constant-square",
+      title: "A square with a constant",
+      starter: { mode: "python", python: SQUARE_STARTER },
+      body: [
+        "Sketch Pad has a **pen** on the robot. Draw a square whose sides are all `SIDE` mm long.",
+        "- At the **top** of the program (above `def main():`, not indented), add `SIDE = 300`.",
+        "- Inside `main`, between the pen lines, drive `SIDE` mm and turn right 90 degrees, **four times**.",
+        "- Run it. Then change `SIDE` to `500` and run it again. You changed one line, and every side changed!",
+        "That's why we use constants: one place to change a value, and no \"magic numbers\" scattered around.",
+      ].join("\n\n"),
+      checks: [
+        { kind: "definesConstant", label: "Define a constant (an UPPER_CASE name at the top)" },
+        { kind: "usesCall", name: "drivetrain.drive_for", min: 4, label: "Use `drivetrain.drive_for` 4 times" },
+        { kind: "usesCall", name: "drivetrain.turn_for", min: 4, label: "Use `drivetrain.turn_for` 4 times" },
+        { kind: "ranWithoutError", label: "Run without errors" },
+      ],
+      hints: [
+        "`SIDE = 300` goes on its own line above `def main():`, with no spaces in front.",
+        "Inside main use the name, not the number: `drivetrain.drive_for(FORWARD, SIDE, MM)`.",
+        "Four times: drive SIDE, turn right 90. (Next lesson you'll learn a shortcut for repeating.)",
+      ],
+      done: "One constant, four sides. Change it once, change it everywhere.",
+    },
+    {
+      id: "growing-spiral",
+      title: "A variable that changes: the spiral",
+      starter: { mode: "python", python: SPIRAL_STARTER },
+      body: [
+        "Constants stay the same. **Variables vary.** Let's draw a square spiral where each line is longer than the last.",
+        "The starter draws one line of `length` = 100 mm. Continue it:",
+        "- Assign a new value: `length = length + 100`",
+        "- Draw another line of `length` and turn right.",
+        "- Do that until you've drawn **4 lines** (100, 200, 300, 400).",
+        "- At the end, print the final length: `print(\"length is\", length)`",
+        "Your log should end with `length is 400`.",
+      ].join("\n\n"),
+      checks: [
+        { kind: "assignsVariable", name: "length", label: "Use the variable `length`" },
+        { kind: "usesCall", name: "drivetrain.drive_for", min: 4, label: "Draw 4 lines" },
+        { kind: "logContains", text: "length is 400", label: "Print `length is 400`" },
+      ],
+      hints: [
+        "Each new line needs three statements: change length, drive length, turn.",
+        "`length = length + 100` reads as: \"length becomes length plus 100\".",
+        "After the starter's first line and turn, repeat this 3 times:\n\n```python\n    length = length + 100\n    drivetrain.drive_for(FORWARD, length, MM)\n    drivetrain.turn_for(RIGHT, 90, DEGREES)\n```\n\nThen `print(\"length is\", length)`.",
+      ],
+      done: "Same name, new value each time. That's what makes a variable useful.",
+    },
+    {
+      id: "spot-the-parts",
+      title: "Spot the parts",
+      body: ["One last check before moving on. Look at the program in each question carefully."].join("\n\n"),
+      checks: [],
+      quiz: [
+        {
+          prompt: "Which line **initialises** `count`?",
+          code: "SPEED = 40\n\ndef main():\n    count = 0\n    count = count + 1\n    drivetrain.set_drive_velocity(SPEED, PERCENT)",
+          choices: ["`SPEED = 40`", "`count = 0`", "`count = count + 1`", "`drivetrain.set_drive_velocity(SPEED, PERCENT)`"],
+          answer: 1,
+          explain: "`count = 0` is where `count` first gets a value. The next line assigns it a new one.",
+        },
+        {
+          prompt: "In that same program, which name is a **constant**?",
+          choices: ["`count`", "`main`", "`SPEED`", "`PERCENT` and `count`"],
+          answer: 2,
+          explain: "`SPEED` is UPPER_CASE and set once at the top. (`PERCENT` is a constant too, but it comes with Robot Lab.)",
+        },
+        {
+          prompt: "A constant `TURN = 90` is used in 12 places. You need 120 instead. What's the best fix?",
+          choices: ["Change all 12 places by hand", "Change `TURN = 90` to `TURN = 120`", "Make a second constant", "Delete the constant"],
+          answer: 1,
+          explain: "Change it once at the top. That's the whole point of a constant.",
+        },
+      ],
+      hints: ["The first value a variable ever gets is its initial value.", "Look for UPPER_CASE names set at the top."],
+      done: "Variables and constants: done. Next up: loops, so you never have to copy and paste four drive lines again.",
+    },
+  ],
+};
