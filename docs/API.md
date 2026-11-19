@@ -2,7 +2,7 @@
 
 The runtime (`src/runtime`) implements exactly this. The blocks generator (`src/blocks`) emits only this.
 It is a superset of the original Grid Robot Sim API, so every old program still runs unchanged.
-Names follow VEX-style Python so students can move to real robots later.
+Names follow common classroom-robot Python conventions (drivetrain, direction and unit constants).
 
 ## Program shape
 ```python

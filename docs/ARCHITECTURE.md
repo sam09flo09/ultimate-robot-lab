@@ -1,7 +1,7 @@
 # Robot Lab — Architecture
 
 Goal: an original, offline-capable classroom robot simulator for student Chromebooks
-(a self-made alternative to VEXcode VR). Blocks + Python, 2D top-down, sensors, several playgrounds,
+(an original, classroom-owned simulator). Blocks + Python, 2D top-down, sensors, several playgrounds,
 teacher-made challenges, pen + magnet. No accounts: students save `.robolab` files to Drive and turn
 them in through Google Classroom. No student data leaves the browser.
 
@@ -50,5 +50,5 @@ if one is truly needed, say so in the final report.
 ## Design language
 Carry over the original sim's look: cream/paper background, ink text, orange accent
 (`--cream #FDF9F2 --ink #0C0B0A --orange #FF6A1A --deep #D6540E --sand #E9E0D2 --paper #FFFDF9`),
-mono labels, large tap targets (≥40 px). Original art only — no VEX logos, robot likenesses or
+mono labels, large tap targets (≥40 px). Original art only — no other companies' logos, robot likenesses or
 playground names from other products.
