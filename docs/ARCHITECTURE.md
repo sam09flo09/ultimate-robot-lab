@@ -1,7 +1,7 @@
 # Robot Lab — Architecture
 
-Goal: an original, offline-capable classroom robot simulator for student Chromebooks
-(an original, classroom-owned simulator). Blocks + Python, 2D top-down, sensors, several playgrounds,
+Goal: an original, classroom-owned, offline-capable robot simulator for student Chromebooks.
+Blocks + Python, 2D top-down, sensors, several playgrounds,
 teacher-made challenges, pen + magnet. No accounts: students save `.robolab` files to Drive and turn
 them in through Google Classroom. No student data leaves the browser.
 
