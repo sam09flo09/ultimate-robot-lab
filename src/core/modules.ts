@@ -11,6 +11,7 @@
  *   src/ui/              the app shell; src/main.ts wires everything together
  */
 import type { World, SimState, RobotController, ColorName } from "./types";
+import type { Activity, ActivityProgress } from "./activity";
 
 // ---------------------------------------------------------------- render
 
@@ -119,6 +120,9 @@ export interface ProjectFile {
   worldId: string;              // a playground id, or "custom"
   customWorld: World | null;    // embedded when worldId === "custom" (teacher-made challenge)
   savedAt: string;              // ISO date
+  /** Optional: the guided activity this project belongs to, with the student's progress,
+   *  so a teacher opening a turned-in file sees which steps were completed. */
+  activity?: { activity: Activity; progress: ActivityProgress } | null;
 }
 
 /** What teachers share: a challenge file (".robolab-level"). */
