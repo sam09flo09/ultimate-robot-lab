@@ -185,6 +185,8 @@
       <div class="seg seg-dark" role="radiogroup" aria-label="What to make">
         <button id="tTabLevel" class="seg-btn" role="radio" aria-checked="true">Level</button>
         <button id="tTabAct" class="seg-btn" role="radio" aria-checked="false">Activity</button>
+        <!-- grading: third tab -->
+        <button id="tTabGrade" class="seg-btn" role="radio" aria-checked="false">Grading</button>
       </div>
       <div class="spacer"></div>
       <button id="tTest" class="btn btn-primary">▶ Test this level</button>
@@ -194,6 +196,8 @@
     </header>
     <div id="teacherHost" class="teacher-host"></div>
     <div id="teacherActHost" class="teacher-host act-author" hidden></div>
+    <!-- grading: results panel (src/grading) -->
+    <div id="teacherGradeHost" class="teacher-host" hidden></div>
   </div>
 
   <div id="toasts" class="toasts" aria-live="polite"></div>

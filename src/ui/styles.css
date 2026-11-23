@@ -162,7 +162,7 @@ kbd { font-size: 11px; color: var(--gray); margin-left: auto; padding-left: 16px
 .toast.out { opacity: 0; }
 
 /* teacher overlay */
-.teacher { position: fixed; inset: 0; z-index: 60; background: var(--cream); display: flex; flex-direction: column; }
+.teacher { position: fixed; inset: 0; z-index: 75; /* grading: above Blockly's toolbox (z-index 70), below dialogs (80) */ background: var(--cream); display: flex; flex-direction: column; }
 .teacher-bar { height: var(--top); display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--ink); color: #fff; }
 .teacher-bar h2 { font-family: var(--serif); font-weight: 400; font-size: 24px; margin: 0; white-space: nowrap; }
 .teacher-bar .btn:not(.btn-primary) { background: #24211E; color: #fff; border-color: #3A3631; }
