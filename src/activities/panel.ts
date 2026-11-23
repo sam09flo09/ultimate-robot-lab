@@ -8,6 +8,7 @@ import { checkStep, type LastRun } from "./checks";
 import { renderRich, renderInline, plainText } from "./markup";
 import { newProgress } from "./activityFile";
 import { loadProgress, saveProgress, saveCurrentId } from "./progress";
+import { playSound } from "../ui/sound";
 
 type Mode = "blocks" | "python";
 
@@ -150,8 +151,8 @@ export function createActivityPanel(root: HTMLElement, host: ActivityHost): Acti
   function stepCelebrate(s: ActivityStep): void {
     const all = act!.steps.every((x) => prog!.completed.includes(x.id));
     root.classList.remove("act-flash"); void root.offsetWidth; root.classList.add("act-flash");
-    if (all) host.celebrate("Activity complete!", `${act!.title} — all ${act!.steps.length} steps done.`);
-    else toast(`Step done: ${plainText(s.title)}`, 2500);
+    if (all) { playSound("success"); host.celebrate("Activity complete!", `${act!.title} — all ${act!.steps.length} steps done.`); }
+    else { playSound("step"); toast(`Step done: ${plainText(s.title)}`, 2500); }
     if (doneEl) doneEl.hidden = false;
   }
 

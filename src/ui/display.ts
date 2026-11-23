@@ -2,6 +2,8 @@
  * Display options: text size and high contrast. Saved per browser (a convenience only).
  * Applied as data attributes on <html>; styles.css does the rest.
  */
+import { soundEnabled, setSoundEnabled, unlockAudio, playSound } from "./sound";
+
 export type TextSize = "normal" | "large" | "larger";
 export interface DisplayPrefs { text: TextSize; contrast: boolean; }
 
@@ -61,4 +63,13 @@ export function initDisplayMenu(): void {
     if (r.checked) { prefs.text = r.value as TextSize; save(prefs); applyDisplay(prefs); }
   });
   contrast?.addEventListener("change", () => { prefs.contrast = contrast.checked; save(prefs); applyDisplay(prefs); });
+
+  const sound = pop.querySelector<HTMLInputElement>("#soundOn");
+  if (sound) {
+    sound.checked = soundEnabled();
+    sound.addEventListener("change", () => {
+      setSoundEnabled(sound.checked);
+      if (sound.checked) { unlockAudio(); playSound("step"); } // a sample so they know it's on
+    });
+  }
 }

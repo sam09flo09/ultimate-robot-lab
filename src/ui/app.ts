@@ -28,6 +28,7 @@ import { BUILT_INS, getBuiltIn } from "../activities/builtins";
 import { loadImported, saveImported, removeImported, loadCurrentId, clearProgress, loadProgress } from "../activities/progress";
 import { ACTIVITY_EXT } from "./files";
 import { createViewSwitcher } from "./view3d";
+import { playSound, soundForSimEvent, unlockAudio } from "./sound";
 
 type Mode = "blocks" | "python";
 type MsgKind = "ok" | "info" | "err";
@@ -173,6 +174,7 @@ export function startApp(): void {
   }
 
   function onSimEvent(e: SimEvent): void {
+    soundForSimEvent(e); // sound
     switch (e.type) {
       case "wallHit":
         if (e.time - lastWallLog > 0.5) pendingLogs.push({ line: 0, text: "The robot hit a wall.", kind: "warn" });
@@ -354,6 +356,7 @@ export function startApp(): void {
   function celebrate(time: number): void {
     if (celebrated) return;
     celebrated = true;
+    playSound("success"); // sound
     lastGoalsKey = ""; renderGoals();
     setText($("celTitle"), "Challenge complete!");
     setText($("celText"), `${world.name} — done in ${time.toFixed(1)} s of robot time.`);
@@ -420,6 +423,7 @@ export function startApp(): void {
     const src = mode === "blocks" ? safeGetPython() : pyEditor.getText();
     if (mode === "blocks" && genEditor && !codeDrawer.hidden) genEditor.setText(src);
     clearMsg(); clearOutput(); clearHighlights();
+    unlockAudio(); playSound("start"); // sound
     if (autoReset.checked) resetRobot();
     celebrated = false; $("celebrate").hidden = true;
     setRunning(true);
@@ -452,6 +456,7 @@ export function startApp(): void {
   function finishMessage(r: RunResult): void {
     if (r.status === "stopped") { clearHighlights(); showMsg("info", "Program stopped."); return; }
     if (r.status === "error") {
+      playSound("error"); // sound
       const line = r.error.line;
       clearHighlights();
       if (mode === "python") pyEditor.mark(line, "err");
