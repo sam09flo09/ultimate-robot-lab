@@ -27,6 +27,7 @@ import { toActivityFile } from "../activities/activityFile";
 import { BUILT_INS, getBuiltIn } from "../activities/builtins";
 import { loadImported, saveImported, removeImported, loadCurrentId, clearProgress, loadProgress } from "../activities/progress";
 import { ACTIVITY_EXT } from "./files";
+import { createViewSwitcher } from "./view3d";
 
 type Mode = "blocks" | "python";
 type MsgKind = "ok" | "info" | "err";
@@ -107,7 +108,12 @@ export function startApp(): void {
   const runPrints: string[] = [];
   const previous = readAutosave(knownWorld); // last session's project, offered via "Restore last project"
 
-  const renderer: Renderer = createRenderer(canvas);
+  const renderer2d: Renderer = createRenderer(canvas);
+  // 2D / 3D view: `view.renderer` is whichever one is on screen.
+  const view = createViewSwitcher({
+    canvas2d: canvas, canvas3d: $("field3d") as HTMLCanvasElement, renderer2d,
+    onSwitch: () => { fitCanvas(); needDraw = true; },
+  });
 
   // ------------------------------------------------------------ editors
   // Autosave on every change — but never overwrite the last session's project with an untouched
@@ -189,7 +195,7 @@ export function startApp(): void {
   function fitCanvas(): void {
     const r = fieldBox.getBoundingClientRect();
     if (r.width < 10 || r.height < 10) return;
-    safe(() => renderer.resize());
+    safe(() => view.renderer.resize());
     needDraw = true;
   }
   new ResizeObserver(() => { fitCanvas(); safe(() => blocks.resize()); }).observe(fieldBox);
@@ -200,7 +206,10 @@ export function startApp(): void {
   function frame(): void {
     const now = performance.now();
     let realDt = Math.max(0, (now - last) / 1000);
+    const frameDt = realDt;
     last = now;
+    // The 3D camera can move on its own (follow mode, dragging), so 3D redraws every frame.
+    if (view.is3D) needDraw = true;
     if (running) {
       if (document.hidden) {
         // rAF is paused: we are on the timer fallback (which Chrome throttles). Catch up in ≤0.1 s chunks.
@@ -213,8 +222,9 @@ export function startApp(): void {
     }
     if (needDraw && !document.hidden) {
       needDraw = false;
-      safe(() => renderer.draw(world, sim.state, { showPath: showPath.checked, showSensors: showSensors.checked, showZones: true, selectedId: null }));
+      safe(() => view.renderer.draw(world, sim.state, { showPath: showPath.checked, showSensors: showSensors.checked, showZones: true, selectedId: null }));
     }
+    safe(() => view.tick(Math.min(frameDt, 0.5), document.hidden));
     flushOutput();
     statusTimer += realDt; goalsTimer += realDt;
     if (!running || statusTimer > 0.1) { if (running || statusDirty) { updateStatus(); statusDirty = false; } statusTimer = 0; }
@@ -526,7 +536,7 @@ export function startApp(): void {
     lastGoalsKey = "";
     $("celebrate").hidden = true;
     safe(() => blocks.setHardware(hw(w)));
-    safe(() => renderer.invalidate());
+    view.invalidate();
     fitCanvas();
     redraw();
     renderWorldMenu();

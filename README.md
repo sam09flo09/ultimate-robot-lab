@@ -31,3 +31,4 @@ Every push to `main` runs the tests, builds the site and publishes it to GitHub 
 - [Skulpt](https://skulpt.org) (Python in the browser), MIT License, bundled in `public/vendor/`.
 - [Blockly](https://developers.google.com/blockly), Apache License 2.0.
 - [CodeMirror 6](https://codemirror.net), MIT License.
+- [Three.js](https://threejs.org) (3D view), MIT License.

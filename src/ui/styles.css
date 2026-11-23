@@ -330,3 +330,9 @@ kbd { font-size: 11px; color: var(--gray); margin-left: auto; padding-left: 16px
 :root[data-text="large"] .msg code, :root[data-text="larger"] .msg code { font-size: calc(14px * var(--ui-zoom)); }
 /* Scrollers must contain their absolutely-positioned screen-reader labels, or those labels stretch the page. */
 .act-body, .help-panel > :last-child, .log, .goals { position: relative; }
+
+/* ---------------------------------------------------------------- 2D / 3D view */
+.camera-box { display: flex; align-items: center; gap: 6px; }
+.camera-box select { font: 600 14px var(--body); min-height: 36px; padding: 4px 8px; border: 1px solid var(--sand); border-radius: 8px; background: #fff; color: var(--ink); }
+.fieldbox canvas#field3d { cursor: grab; }
+.fieldbox canvas#field3d:active { cursor: grabbing; }

@@ -111,9 +111,22 @@
           <label class="check"><input type="checkbox" id="autoReset" checked> Reset before run</label>
           <label class="check"><input type="checkbox" id="showPath" checked> Path</label>
           <label class="check"><input type="checkbox" id="showSensors" checked> Sensors</label>
+          <div class="seg seg-view" role="radiogroup" aria-label="View">
+            <button class="seg-btn" role="radio" aria-checked="true" data-view="2d" title="Flat, top-down view">2D</button>
+            <button class="seg-btn" role="radio" aria-checked="false" data-view="3d" title="3D view (drag to look around)">3D</button>
+          </div>
+          <div id="cameraBox" class="camera-box" hidden>
+            <select id="cameraSel" aria-label="Camera">
+              <option value="orbit">Look around</option>
+              <option value="follow">Follow robot</option>
+              <option value="overhead">Overhead</option>
+            </select>
+            <button id="cameraReset" class="btn btn-sm" title="Show the whole field" aria-label="Reset camera">⌖</button>
+          </div>
         </div>
         <div id="fieldBox" class="fieldbox">
           <canvas id="field" role="img" aria-label="Playground with the robot"></canvas>
+          <canvas id="field3d" role="img" aria-label="3D playground with the robot. Drag to look around." hidden></canvas>
           <div id="celebrate" class="celebrate" hidden role="alert">
             <div class="cel-card">
               <div class="cel-stars" aria-hidden="true"><span></span><span></span><span></span></div>
