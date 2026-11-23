@@ -41,6 +41,31 @@ export interface Renderer {
   setView?(view: { zoom: number; cx: number; cy: number } | null): void;
 }
 
+// ---------------------------------------------------------------- 3D renderer (src/render3d)
+//   export function createRenderer3D(canvas: HTMLCanvasElement, opts?: Renderer3DOptions): Renderer3D
+//   export function webglSupported(): boolean
+// Draws the SAME World + SimState as the 2D renderer (the sim stays 2D: floor plane, heading
+// clockwise from +y). World mm map to 3D as x → x, y → -z, height → +y.
+
+export type CameraMode = "overhead" | "follow" | "orbit";
+export type Quality = "low" | "high";
+
+export interface Renderer3DOptions {
+  quality?: Quality;        // default "high"; "low" = no shadows, pixel ratio 1, simpler models
+}
+
+export interface Renderer3D extends Renderer {
+  setCamera(mode: CameraMode): void;
+  readonly camera: CameraMode;
+  setQuality(q: Quality): void;
+  /** Rolling average of the last ~60 frame times in ms (draw() → next draw()). For the auto-fallback. */
+  frameMs(): number;
+  /** Re-centre the orbit / overhead camera on the whole field. */
+  resetCamera(): void;
+  /** Free GPU resources and remove the canvas's listeners. The canvas is left in place. */
+  dispose(): void;
+}
+
 // ---------------------------------------------------------------- python runtime
 
 export interface RunnerOptions {
