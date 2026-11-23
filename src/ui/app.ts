@@ -29,6 +29,7 @@ import { loadImported, saveImported, removeImported, loadCurrentId, clearProgres
 import { ACTIVITY_EXT } from "./files";
 import { createViewSwitcher } from "./view3d";
 import { playSound, soundForSimEvent, unlockAudio } from "./sound";
+import { createGradingPanel, type GradingPanel } from "../grading/panel"; // grading
 
 type Mode = "blocks" | "python";
 type MsgKind = "ok" | "info" | "err";
@@ -415,7 +416,7 @@ export function startApp(): void {
   }
 
   async function run(): Promise<void> {
-    if (running || isDialogOpen() || isCatalogueOpen() || !$("teacher").hidden) return;
+    if (running || isDialogOpen() || isCatalogueOpen() || !$("teacher").hidden || grading?.busy) return; // grading: Skulpt is global
     if (typeof (window as unknown as { Sk?: unknown }).Sk === "undefined") {
       showMsg("err", "The Python engine did not load. Reload the page (it works offline once it has loaded one time).");
       return;
@@ -795,6 +796,7 @@ export function startApp(): void {
 
   // ------------------------------------------------------------ teacher mode
   const teacher = $("teacher");
+  let grading: GradingPanel | null = null; // grading (src/grading)
   let levelEditor: LevelEditor | null = null;
   const saveDraft = debounce((w: World) => writeLevelDraft(w), 600);
 
@@ -812,7 +814,7 @@ export function startApp(): void {
     }
     ($("tClose") as HTMLElement).focus();
   }
-  function closeTeacher(): void { teacher.hidden = true; ($("fileBtn") as HTMLElement).focus(); requestAnimationFrame(fitCanvas); }
+  function closeTeacher(): void { grading?.cancel(); /* grading */ teacher.hidden = true; ($("fileBtn") as HTMLElement).focus(); requestAnimationFrame(fitCanvas); }
 
   function checkedLevel(): World | null {
     if (!levelEditor) return null;
@@ -940,13 +942,16 @@ export function startApp(): void {
   // teacher: Level / Activity switch + authoring form
   let author: ReturnType<typeof createActivityAuthor> | null = null;
   let actHandle: FileHandle = null;
-  function teacherTab(which: "level" | "activity"): void {
+  function teacherTab(which: "level" | "activity" | "grade"): void {
     const act = which === "activity";
-    $("tTabLevel").setAttribute("aria-checked", String(!act));
+    const grade = which === "grade"; // grading
+    $("tTabLevel").setAttribute("aria-checked", String(which === "level"));
     $("tTabAct").setAttribute("aria-checked", String(act));
-    $("teacherHost").hidden = act; $("teacherActHost").hidden = !act;
-    for (const id of ["tTest", "tSave", "tShare"]) $(id).hidden = act;
-    setText($("teacherTitle"), act ? "Teacher · Activity maker" : "Teacher · Challenge maker");
+    $("tTabGrade").setAttribute("aria-checked", String(grade));
+    $("teacherHost").hidden = which !== "level"; $("teacherActHost").hidden = !act; $("teacherGradeHost").hidden = !grade;
+    for (const id of ["tTest", "tSave", "tShare"]) $(id).hidden = which !== "level";
+    setText($("teacherTitle"), grade ? "Teacher · Grading" : act ? "Teacher · Activity maker" : "Teacher · Challenge maker");
+    if (grade) { openGrading(); return; }
     if (act && !author) {
       author = createActivityAuthor($("teacherActHost"), {
         playgrounds: playgrounds.map((w) => ({ id: w.id, name: w.name })),
@@ -981,6 +986,23 @@ export function startApp(): void {
   }
   $("tTabLevel").addEventListener("click", () => teacherTab("level"));
   $("tTabAct").addEventListener("click", () => teacherTab("activity"));
+
+  // ------------------------------------------------------------ grading (src/grading): grade many turned-in files
+  function openGrading(): void {
+    if (!grading) {
+      grading = createGradingPanel($("teacherGradeHost"), {
+        isMainRunning: () => running,
+        openProject: (p, fileName) => {
+          closeTeacher();
+          const warnings = loadProject(p, { activityReview: true });
+          fileHandle = null;
+          showMsg("info", `Reviewing <b>${esc(p.name)}</b> (${esc(fileName)}). Your own activity progress isn't changed.` + warnings.map((w) => "<br>" + esc(w)).join(""));
+        },
+      });
+    }
+    grading.focus();
+  }
+  $("tTabGrade").addEventListener("click", () => teacherTab("grade"));
 
   // ------------------------------------------------------------ keyboard
   document.addEventListener("keydown", (e) => {
