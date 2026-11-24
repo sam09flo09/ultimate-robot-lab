@@ -269,6 +269,17 @@ export function sanitizeWorld(raw: unknown): { world: World; warnings: string[] 
     goals.push(goal);
   }
 
+  // race (time trial) settings — optional; dropped if the finish zone is missing
+  let race: World["race"];
+  if (isObj(src.race)) {
+    const finishZone = zoneRef(src.race.finishZone);
+    if (finishZone) {
+      race = { finishZone, laps: clampNum(src.race.laps, 1, 10, 1, true) };
+      const par = num(src.race.par);
+      if (par !== null && par > 0) race.par = Math.min(3600, Math.max(0.5, Math.round(par * 100) / 100));
+    } else warn("The race settings pointed at a missing finish zone, so this level is not a race any more.");
+  }
+
   // start pose: inside the field
   const s = isObj(src.start) ? src.start : {};
   const start: Pose = {
@@ -301,6 +312,7 @@ export function sanitizeWorld(raw: unknown): { world: World; warnings: string[] 
     starter: { python: text(starter.python, LIMITS.python, true) },
     version: 1,
   };
+  if (race) world.race = race; // race
   return { world, warnings };
 }
 

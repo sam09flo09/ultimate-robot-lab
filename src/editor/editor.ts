@@ -1014,8 +1014,9 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
       field("Grid square", selectInput(gridOpts, String(world.gridSize ?? 200), (v) => mutate((w) => { w.gridSize = Number(v); }))),
       h("h3", { text: "Robot hardware" }),
       check("Pen (draws on the floor)", !!world.hardware?.pen, (v) => mutate((w) => { w.hardware = { ...w.hardware, pen: v }; })),
-      check("Magnet (picks up objects)", !!world.hardware?.magnet, (v) => mutate((w) => { w.hardware = { ...w.hardware, magnet: v }; })),
-      h("h3", { text: "Starter Python" }));
+      check("Magnet (picks up objects)", !!world.hardware?.magnet, (v) => mutate((w) => { w.hardware = { ...w.hardware, magnet: v }; })));
+    renderRaceSettings(P); // race
+    P.append(h("h3", { text: "Starter Python" }));
     const code = textInput(world.starter?.python ?? "", LIMITS.python, (w, v) => { w.starter = { ...w.starter, python: v }; }, true, "le-code");
     code.addEventListener("keydown", (e) => {
       const ke = e as KeyboardEvent;
@@ -1030,6 +1031,36 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
     code.setAttribute("placeholder", "Optional code students start with");
     code.setAttribute("aria-label", "Starter Python");
     P.append(code, h("p", { class: "le-empty", text: "Tip: press Esc then Tab to move out of the code box." }));
+  }
+
+  // race: time-trial settings (finish zone, par, laps). Checkpoints = the zones of a "Visit zones in order" goal.
+  function renderRaceSettings(P: HTMLElement) {
+    P.append(h("h3", { text: "Race (time trial)" }));
+    const r = world.race;
+    const ensureFinishGoal = (w: World, zone: string) => {
+      if (zone && !w.goals.some((g) => g.type === "reachZone" && g.zone === zone)) w.goals.push({ type: "reachZone", zone });
+    };
+    P.append(check("This level is a race (students see a race clock)", !!r, (v) => {
+      if (v && world.zones.length === 0) { say("Draw a zone first (Zone tool) — it becomes the finish."); renderLevelPanel(); return; }
+      mutate((w) => {
+        if (!v) { delete w.race; return; }
+        const fin = w.zones.find((z) => /finish/i.test(`${z.id} ${z.label ?? ""}`)) ?? w.zones[w.zones.length - 1];
+        w.race = { finishZone: fin.id, laps: 1 };
+        ensureFinishGoal(w, fin.id);
+      });
+    }));
+    if (!r) {
+      P.append(h("p", { class: "le-empty", text: "A race times the robot (robot time) from Run until it reaches the finish zone, and keeps each student's best time." }));
+      return;
+    }
+    P.append(
+      field("Finish zone", zonePicker(r.finishZone, (v) => mutate((w) => { if (w.race && v) { w.race.finishZone = v; ensureFinishGoal(w, v); } }))),
+      field("Par time (s)", numInput(r.par ?? 0, (w, v) => { if (!w.race) return; if (v > 0) w.race.par = Math.round(v * 100) / 100; else delete w.race.par; }, { step: 1, min: 0, max: 3600 })),
+      field("Laps", selectInput(["1", "2", "3", "4", "5"].map((n) => [n, n] as [string, string]), String(r.laps ?? 1),
+        (v) => mutate((w) => { if (w.race) w.race.laps = Number(v); }))),
+      h("p", { class: "le-empty", text: "Par: gold ≤ par, silver ≤ 1.25 × par, bronze slower (0 = no medals). " +
+        "Checkpoints: add a \"Visit zones in order\" goal — each lap must pass them in that order before crossing the finish. " +
+        "With laps, the robot must start outside the finish zone." }));
   }
 
   function zonePicker(value: string, set: (v: string) => void): HTMLSelectElement {

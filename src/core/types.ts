@@ -65,6 +65,17 @@ export type Goal =
   | { type: "endFacing"; heading: number; tolerance?: number; description?: string }
   | { type: "maxTime"; seconds: number; description?: string };   // sim time, not wall-clock
 
+/**
+ * Race / time-trial settings (optional, additive). A race is finished when the robot enters
+ * `finishZone` after visiting the checkpoint zones (the world's first visitInOrder goal, minus the
+ * finish zone) in order, `laps` times. Times are SIM seconds (independent of the speed buttons).
+ */
+export interface RaceSpec {
+  finishZone: string;
+  par?: number;   // seconds of sim time: gold <= par, silver <= 1.25 x par, bronze otherwise
+  laps?: number;  // default 1
+}
+
 export interface World {
   id: string;
   name: string;
@@ -82,6 +93,8 @@ export interface World {
   hardware?: { pen?: boolean; magnet?: boolean };
   /** Starter code for this playground, if any. */
   starter?: { python?: string };
+  /** Race / time-trial mode (see RaceSpec). Missing = not a race. */
+  race?: RaceSpec;
   version: 1;
 }
 

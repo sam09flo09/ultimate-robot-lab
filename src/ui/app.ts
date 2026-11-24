@@ -28,6 +28,7 @@ import { BUILT_INS, getBuiltIn } from "../activities/builtins";
 import { loadImported, saveImported, removeImported, loadCurrentId, clearProgress, loadProgress } from "../activities/progress";
 import { ACTIVITY_EXT } from "./files";
 import { createViewSwitcher } from "./view3d";
+import { createRaceUi } from "../race/ui"; // race
 
 type Mode = "blocks" | "python";
 type MsgKind = "ok" | "info" | "err";
@@ -114,6 +115,7 @@ export function startApp(): void {
     canvas2d: canvas, canvas3d: $("field3d") as HTMLCanvasElement, renderer2d,
     onSwitch: () => { fitCanvas(); needDraw = true; },
   });
+  const race = createRaceUi(fieldBox); // race: clock overlay, countdown, lock-step stepping, Challenge-tab panel
 
   // ------------------------------------------------------------ editors
   // Autosave on every change — but never overwrite the last session's project with an untouched
@@ -157,7 +159,7 @@ export function startApp(): void {
     unsubSim?.();
     sim = createSim(world);
     runner = createPythonRunner({
-      controller: sim.controller,
+      controller: race.active ? race.wrap(sim.controller) : sim.controller, // race: counts pending motions for lock-step
       onLine: (line) => { pendingLine = line; },
       onLog: (e) => { pendingLogs.push(e); if (e.kind === "print" && runPrints.length < 500) runPrints.push(String(e.text)); },
       onScreen: (op) => {
@@ -186,7 +188,7 @@ export function startApp(): void {
         lastGoalsKey = "";
         break;
       }
-      case "goalsComplete": celebrate(e.time); break;
+      case "goalsComplete": if (!race.active) celebrate(e.time); break; // race: the race finish celebrates instead
     }
   }
 
@@ -210,7 +212,11 @@ export function startApp(): void {
     last = now;
     // The 3D camera can move on its own (follow mode, dragging), so 3D redraws every frame.
     if (view.is3D) needDraw = true;
-    if (running) {
+    if (running && race.active) {
+      // race: lock-step substeps so the finish time doesn't depend on speed or frame rate
+      race.advance(Math.min(document.hidden ? 2 : 0.1, realDt) * speed);
+      needDraw = true;
+    } else if (running) {
       if (document.hidden) {
         // rAF is paused: we are on the timer fallback (which Chrome throttles). Catch up in ≤0.1 s chunks.
         realDt = Math.min(realDt, 2);
@@ -225,6 +231,7 @@ export function startApp(): void {
       safe(() => view.renderer.draw(world, sim.state, { showPath: showPath.checked, showSensors: showSensors.checked, showZones: true, selectedId: null }));
     }
     safe(() => view.tick(Math.min(frameDt, 0.5), document.hidden));
+    race.tick(); // race
     flushOutput();
     statusTimer += realDt; goalsTimer += realDt;
     if (!running || statusTimer > 0.1) { if (running || statusDirty) { updateStatus(); statusDirty = false; } statusTimer = 0; }
@@ -334,6 +341,8 @@ export function startApp(): void {
     goalsBox.innerHTML = "";
     goalsBox.append(h("h3", {}, world.name));
     if (world.description) goalsBox.append(h("p", { class: "desc" }, world.description));
+    const racePanel = race.panel(() => { lastGoalsKey = ""; renderGoals(); }); // race
+    if (racePanel) goalsBox.append(racePanel);
     if (!results.length) {
       goalsBox.append(h("p", { class: "empty" }, "This playground has no challenge goals. Explore freely!"));
       return;
@@ -405,13 +414,14 @@ export function startApp(): void {
   function resetRobot(): void {
     if (running) return;
     safe(() => sim.reset());
+    race.reset(); // race
     celebrated = false; lastWallLog = -10;
     $("celebrate").hidden = true;
     lastGoalsKey = ""; renderGoals();
     redraw();
   }
 
-  async function run(): Promise<void> {
+  async function run(opts: { countdown?: boolean } = {}): Promise<void> {
     if (running || isDialogOpen() || isCatalogueOpen() || !$("teacher").hidden) return;
     if (typeof (window as unknown as { Sk?: unknown }).Sk === "undefined") {
       showMsg("err", "The Python engine did not load. Reload the page (it works offline once it has loaded one time).");
@@ -420,10 +430,15 @@ export function startApp(): void {
     const src = mode === "blocks" ? safeGetPython() : pyEditor.getText();
     if (mode === "blocks" && genEditor && !codeDrawer.hidden) genEditor.setText(src);
     clearMsg(); clearOutput(); clearHighlights();
-    if (autoReset.checked) resetRobot();
+    if (autoReset.checked || race.active) resetRobot(); // race: always reset before a race run
     celebrated = false; $("celebrate").hidden = true;
     setRunning(true);
     runPrints.length = 0;
+    if (race.active) { // race: 3-2-1-GO (no sim time passes), then start the clock with the program
+      const go = await race.countdown(opts.countdown === false);
+      if (!go || !running) { setRunning(false); showMsg("info", "Race cancelled."); return; }
+      race.begin(sim, () => { safe(() => runner.stop()); safe(() => sim.abort()); });
+    }
     let result: RunResult;
     try {
       result = await runner.run(src);
@@ -432,11 +447,22 @@ export function startApp(): void {
       result = { status: "error", error: { line: 0, type: "InternalError", raw: String(e), html: "<b>Something went wrong inside Robot Lab.</b><br>Press Reset and try again." } };
     }
     safe(() => sim.abort()); // nothing keeps moving after the program ends
+    const raceOut = race.end(); // race
     setRunning(false);
     flushOutput();
     redraw();
     lastGoalsKey = ""; renderGoals();
-    finishMessage(result);
+    if (raceOut?.finished) { // race
+      clearHighlights();
+      showMsg("ok", race.outcomeHtml(raceOut));
+      setText($("celTitle"), raceOut.newBest ? "New best!" : "Finished!");
+      setText($("celText"), $("msg").textContent ?? "");
+      $("celebrate").hidden = false;
+      ($("celClose") as HTMLButtonElement).focus({ preventScroll: true });
+    } else if (raceOut && result.status !== "error") {
+      clearHighlights();
+      showMsg("info", race.outcomeHtml(raceOut) + (result.status === "stopped" ? " (Program stopped.)" : ""));
+    } else finishMessage(result);
     if (activity?.active) {
       const goals = safe(() => sim.evaluateGoals()) ?? [];
       const st = sim.state;
@@ -478,7 +504,7 @@ export function startApp(): void {
     }
     let extra = "";
     const goals = safe(() => sim.evaluateGoals()) ?? [];
-    if (goals.length) {
+    if (goals.length && !race.active) { // race: the race result replaces the goals summary
       const n = goals.filter((g) => g.passed).length;
       if (n === goals.length) { extra = " <b>Challenge complete!</b>"; celebrate(st.time); }
       else extra = ` Challenge: <b>${n} of ${goals.length}</b> goals done — see the Challenge tab.`;
@@ -488,6 +514,7 @@ export function startApp(): void {
 
   function stop(): void {
     if (!running) return;
+    race.cancelCountdown(); // race
     safe(() => runner.stop());
     safe(() => sim.abort());
   }
@@ -532,6 +559,9 @@ export function startApp(): void {
     const prev = world;
     const unchanged = isPythonUnchanged(prev);
     world = w; worldId = id;
+    race.setWorld(w, id); // race (before buildSim: the runner's controller is wrapped for races)
+    autoReset.disabled = race.active; autoReset.checked = race.active || !!prefs.autoReset;
+    autoReset.parentElement!.title = race.active ? "Races always start from a reset robot" : "";
     buildSim();
     lastGoalsKey = "";
     $("celebrate").hidden = true;
@@ -1017,7 +1047,7 @@ export function startApp(): void {
 
   // Test hook (for automated checks; harmless for students).
   (window as unknown as Record<string, unknown>).__robotLab = {
-    run, stop, reset: resetRobot, setMode: (m: Mode) => setMode(m, false),
+    run: () => run({ countdown: false }), stop, reset: resetRobot, // race: automated runs skip the countdown setMode: (m: Mode) => setMode(m, false),
     setCode: (s: string) => pyEditor.setText(s), project: currentProject,
     load: (text: string) => { const o = parseFileText(text, knownWorld); if (o.kind === "project") loadProject(o.project); return o.kind; },
     state: () => ({ running, mode, worldId, robot: { ...sim.state.robot }, msg: msgEl.textContent, log: Array.from(logEl.children).map((l) => l.textContent) }),

@@ -222,3 +222,26 @@ describe("level files", () => {
     expect(parseLevelFile(text).ok).toBe(true);
   });
 });
+
+// race
+describe("race settings", () => {
+  const base = () => ({
+    width: 2000, height: 2000, start: { x: 0, y: 0, heading: 0 },
+    zones: [{ id: "fin", kind: "rect", x: 0, y: 500, w: 200, h: 200 }],
+  });
+  it("keeps a valid race, clamping laps and par", () => {
+    const w = sanitizeWorld({ ...base(), race: { finishZone: "fin", laps: 42, par: 12.345, extra: 1 } }).world;
+    expect(w.race).toEqual({ finishZone: "fin", laps: 10, par: 12.35 });
+  });
+  it("drops par <= 0 and defaults laps to 1", () => {
+    expect(sanitizeWorld({ ...base(), race: { finishZone: "fin", par: -5 } }).world.race).toEqual({ finishZone: "fin", laps: 1 });
+  });
+  it("drops the race (with a warning) when the finish zone is missing", () => {
+    const r = sanitizeWorld({ ...base(), race: { finishZone: "nope" } });
+    expect(r.world.race).toBeUndefined();
+    expect(r.warnings.join(" ")).toMatch(/race/i);
+  });
+  it("no race key when not a race", () => {
+    expect("race" in sanitizeWorld(base()).world).toBe(false);
+  });
+});
