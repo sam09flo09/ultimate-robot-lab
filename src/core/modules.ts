@@ -18,6 +18,11 @@ export type { NotebookData, NotebookRun, NotebookInclude } from "../notebook/typ
 // ---------------------------------------------------------------- render
 
 export interface RenderOptions {
+  /** match: more robots to draw on the same field (the main `state` is Team A). Each has its own
+   *  pose/arm/pen; draw it tinted with `color` and a small `label` ("A"/"B"). Objects come from the main state. */
+  extraRobots?: Array<{ state: import("./types").SimState; color: string; label: string }>;
+  /** match: tint for the main robot (default: the usual robot colours). */
+  mainRobotColor?: string;
   showPath: boolean;
   showSensors: boolean;     // draw distance ray etc.
   showZones: boolean;       // outline goal zones
