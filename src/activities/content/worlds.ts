@@ -170,4 +170,36 @@ export const MAZE_2: World = {
   version: 1,
 };
 
-export const CUSTOM_WORLDS: World[] = [WALL_STOP_1, WALL_STOP_2, BUMPER_TEST, COLOR_CHECK, GRID_CORNERS, MINI_DEPOT, MAZE_2];
+/**
+ * Driver practice: drive (with the controller) up through the yellow checkpoint, turn right,
+ * and park on the green target. A short wall stops you cutting the corner.
+ */
+export const DRIVER_PRACTICE: World = {
+  id: "act-driver-practice",
+  name: "Driver Practice",
+  description: "Drive up through the yellow checkpoint, turn right, and reach the green target. Don't touch the wall.",
+  width: 1200,
+  height: 2000,
+  background: "grid",
+  gridSize: 200,
+  start: { x: -300, y: -800, heading: 0 },
+  // The wall's top end is at y = 120; the checkpoint/target row is y = 100..500, so there is room to turn above it.
+  walls: [{ id: "corner-wall", a: { x: -100, y: -600 }, b: { x: -100, y: 100 }, thickness: 40 }],
+  floor: [
+    { kind: "rect", id: "checkpoint-paint", x: -300, y: 300, w: 400, h: 400, color: "YELLOW" },
+    { kind: "rect", id: "target-paint", x: 300, y: 300, w: 400, h: 400, color: "GREEN" },
+  ],
+  objects: [],
+  zones: [
+    { id: "checkpoint", kind: "rect", x: -300, y: 300, w: 400, h: 400, label: "Checkpoint" },
+    { id: "target", kind: "rect", x: 300, y: 300, w: 400, h: 400, label: "Target" },
+  ],
+  goals: [
+    { type: "visitInOrder", zones: ["checkpoint", "target"], description: "Drive through the yellow checkpoint, then reach the green target" },
+    { type: "noWallHits", description: "Don't touch the wall" },
+  ],
+  hardware: {},
+  version: 1,
+};
+
+export const CUSTOM_WORLDS: World[] = [WALL_STOP_1, WALL_STOP_2, BUMPER_TEST, COLOR_CHECK, GRID_CORNERS, MINI_DEPOT, MAZE_2, DRIVER_PRACTICE];

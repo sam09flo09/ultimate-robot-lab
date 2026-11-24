@@ -20,6 +20,23 @@ const starter = (block: Item): Item => ({ kind: "block", ...block });
 const driveFor = (d: number, next?: Item) => s("robot_drive_for", { inputs: { DIST: n(d) } }, next);
 const turnFor = (a: number, next?: Item) => s("robot_turn_for", { inputs: { ANGLE: n(a) } }, next);
 
+/** Driver-control starters: a reporter (or sum) dropped into a motor's velocity slot. */
+const axis = (a: string): Item => s("robot_controller_axis", { fields: { AXIS: a } });
+const arith = (op: "ADD" | "MINUS", a: Item, b: Item): Item =>
+  s("math_arithmetic", { fields: { OP: op }, inputs: { A: { shadow: n(0).shadow, block: a }, B: { shadow: n(0).shadow, block: b } } });
+const spinWith = (motor: string, value: Item, next?: Item) =>
+  s("robot_motor_spin", { fields: { MOTOR: motor }, inputs: { VELOCITY: { shadow: n(50).shadow, block: value } } }, next);
+const loopWait = (first: Item) => s("robot_forever", { inputs: { DO: { block: first } } });
+const wait20 = () => s("robot_wait", { fields: { UNITS: "MSEC" }, inputs: { TIME: n(20) } });
+
+/** "Tank drive": each stick drives one side. */
+export const TANK_DRIVE_STARTER: Item = loopWait(
+  spinWith("left_motor", axis("axis3"), spinWith("right_motor", axis("axis2"), wait20())));
+/** "Arcade drive": left stick forward/back, right stick turns. */
+export const ARCADE_DRIVE_STARTER: Item = loopWait(
+  spinWith("left_motor", arith("ADD", axis("axis3"), axis("axis1")),
+    spinWith("right_motor", arith("MINUS", axis("axis3"), axis("axis1")), wait20())));
+
 export function buildToolbox(hw: { pen: boolean; magnet: boolean }): Blockly.utils.toolbox.ToolboxDefinition {
   const cats: Item[] = [
     {
@@ -43,6 +60,13 @@ export function buildToolbox(hw: { pen: boolean; magnet: boolean }): Blockly.uti
         blk("robot_heading"),
         blk("robot_rotation"),
         blk("robot_is_done"),
+        label("Motors · one wheel at a time"),
+        blk("robot_motor_spin", { VELOCITY: n(50) }),
+        blk("robot_motor_spin", { VELOCITY: n(50) }, { MOTOR: "right_motor" }),
+        blk("robot_motor_stop"),
+        blk("robot_motor_stop", undefined, { MOTOR: "right_motor" }),
+        blk("robot_motor_set_velocity", { VELOCITY: n(50) }),
+        blk("robot_motor_velocity"),
       ],
     },
     {
@@ -70,6 +94,24 @@ export function buildToolbox(hw: { pen: boolean; magnet: boolean }): Blockly.uti
         sep(),
         blk("robot_timer"),
         blk("robot_reset_timer"),
+      ],
+    },
+    {
+      kind: "category", name: "Controller", categorystyle: "rl_controller_cat", contents: [
+        label("Starter · tank drive"),
+        starter(TANK_DRIVE_STARTER),
+        label("Starter · arcade drive"),
+        starter(ARCADE_DRIVE_STARTER),
+        sep(),
+        blk("robot_controller_axis"),
+        blk("robot_controller_axis", undefined, { AXIS: "axis2" }),
+        blk("robot_controller_axis", undefined, { AXIS: "axis1" }),
+        blk("robot_controller_axis", undefined, { AXIS: "axis4" }),
+        sep(),
+        blk("robot_controller_button"),
+        blk("robot_controller_button", undefined, { BUTTON: "buttonB" }),
+        blk("robot_controller_button", undefined, { BUTTON: "buttonL1" }),
+        blk("robot_controller_button", undefined, { BUTTON: "buttonR1" }),
       ],
     },
   ];
@@ -176,6 +218,12 @@ const EXTRA_WORDS: Record<string, string> = {
   logic_operation: "and or", logic_negate: "not", logic_boolean: "true false", math_round: "round up down",
   math_modulo: "remainder modulo", math_single: "square root absolute", math_trig: "sin cos tan trig",
   text: "text word string", text_join: "join text",
+  robot_motor_spin: "wheel motor spin speed power driver tank arcade output",
+  robot_motor_stop: "wheel motor stop halt brake driver",
+  robot_motor_set_velocity: "wheel motor speed power velocity",
+  robot_motor_velocity: "wheel motor speed velocity",
+  robot_controller_axis: "joystick stick gamepad axis driver control drive input position tank arcade",
+  robot_controller_button: "gamepad button press pressing driver control input trigger shoulder",
 };
 function blockWords(type: string): string {
   const def = BLOCK_DEFS.find((d) => d.type === type);

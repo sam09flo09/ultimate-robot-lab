@@ -3,6 +3,8 @@
  * content.test.ts runs each one on the real simulator and checker, so every step is proven completable.
  * Teachers may also find these handy as answer keys.
  */
+import type { DriveScript } from "./runSolution";
+
 const prog = (...lines: string[]) => lines.join("\n") + "\n";
 
 const DEPOT = prog(
@@ -95,6 +97,77 @@ const WALL_STOP = prog(
   "",
   "start(main)",
 );
+
+const TANK = prog(
+  "def main():",
+  "    while True:",
+  "        left_motor.spin(FORWARD, controller.axis3.position(), PERCENT)",
+  "        right_motor.spin(FORWARD, controller.axis2.position(), PERCENT)",
+  "        wait(20, MSEC)",
+  "",
+  "start(main)",
+);
+
+const ARCADE = prog(
+  "def main():",
+  "    while True:",
+  "        forward = controller.axis3.position()",
+  "        turn = controller.axis1.position()",
+  "        left = forward + turn",
+  "        right = forward - turn",
+  "        left_motor.spin(FORWARD, left, PERCENT)",
+  "        right_motor.spin(FORWARD, right, PERCENT)",
+  "        wait(20, MSEC)",
+  "",
+  "start(main)",
+);
+
+/** Arcade drive with deadband + clamp; optional extra loop lines (buttons) and speed mode. */
+const arcadeFull = (opts: { buttons?: boolean; speedMode?: boolean }) => {
+  const scale = opts.speedMode ? " * max_speed / 100" : "";
+  return prog(
+    "DEADBAND = 10",
+    "",
+    "def main():",
+    ...(opts.speedMode ? ["    max_speed = 100"] : []),
+    "    while True:",
+    ...(opts.speedMode ? [
+      "        if controller.buttonL1.pressing():",
+      "            max_speed = 50",
+      "        if controller.buttonR1.pressing():",
+      "            max_speed = 100",
+    ] : []),
+    "        forward = controller.axis3.position()",
+    "        turn = controller.axis1.position()",
+    "        # deadband: a resting stick counts as 0",
+    "        if abs(forward) < DEADBAND:",
+    "            forward = 0",
+    "        if abs(turn) < DEADBAND:",
+    "            turn = 0",
+    "        left = forward + turn",
+    "        right = forward - turn",
+    "        # clamp to the motors' range",
+    "        if left > 100:",
+    "            left = 100",
+    "        if left < -100:",
+    "            left = -100",
+    "        if right > 100:",
+    "            right = 100",
+    "        if right < -100:",
+    "            right = -100",
+    `        left_motor.spin(FORWARD, left${scale}, PERCENT)`,
+    `        right_motor.spin(FORWARD, right${scale}, PERCENT)`,
+    ...(opts.buttons ? [
+      "        if controller.buttonA.pressing():",
+      "            magnet.energize(BOOST)",
+      "        if controller.buttonB.pressing():",
+      "            magnet.energize(DROP)",
+    ] : []),
+    "        wait(20, MSEC)",
+    "",
+    "start(main)",
+  );
+};
 
 export const SOLUTIONS: Record<string, Record<string, string>> = {
   "a01-meet-your-robot": {
@@ -260,6 +333,17 @@ export const SOLUTIONS: Record<string, Record<string, string>> = {
       "start(main)",
     ),
   },
+  "a11-first-driver-program": {
+    "tank-blocks": TANK,
+    "tank-python": TANK,
+    "drive-to-target": TANK,
+  },
+  "a12-arcade-drive-buttons": {
+    "arcade-mix": ARCADE,
+    "clamp-deadband": arcadeFull({}),
+    "magnet-button": arcadeFull({ buttons: true }),
+    "speed-mode": arcadeFull({ buttons: true, speedMode: true }),
+  },
   "a07-decisions-line-follow": {
     "color-check": prog(
       "def main():",
@@ -358,5 +442,60 @@ export const SOLUTIONS: Record<string, Record<string, string>> = {
     ),
     "smart-solver": RIGHT_HAND,
     "new-maze": RIGHT_HAND,
+  },
+};
+
+/*
+ * Scripted drivers for steps whose goals need someone at the controller (driver-control activities).
+ * Timings assume the API's wheel model: 100% = 800 mm/s at the wheel, track width 120 mm, so
+ *   straight at p%: 8p mm/s;  spin on the spot at ±p%: 2 * 8p / 120 rad/s (p = 30 → 229°/s, 90° ≈ 0.39 s).
+ * Zones are 400 mm wide, so a few degrees or a few cm of slop still pass.
+ */
+/** Driver Practice: up 1100 mm into the checkpoint (y ≈ 300), spin right 90°, across 600 mm into the target. */
+const tankToTarget: DriveScript = {
+  timeline: [
+    { t: 0, axes: { axis3: 60, axis2: 60 } },          // 480 mm/s × 2.3 s ≈ 1100 mm
+    { t: 2.3, axes: { axis3: 30, axis2: -30 } },       // spin right ≈ 90°
+    { t: 2.693, axes: { axis3: 60, axis2: 60 } },      // 480 mm/s × 1.25 s = 600 mm
+    { t: 3.943 },                                       // let go
+  ],
+  stopAt: 4.5,
+};
+const arcadeToTarget: DriveScript = {
+  timeline: [
+    { t: 0, axes: { axis3: 60 } },
+    { t: 2.3, axes: { axis1: 30 } },
+    { t: 2.693, axes: { axis3: 60 } },
+    { t: 3.943 },
+  ],
+  stopAt: 4.5,
+};
+/** Mini Depot (disk at y = -300, bin y 550..850): up ~360 mm to the disk, A, carry ~1020 mm, B. */
+const depotRun = (slowFirst: boolean): DriveScript => {
+  const k = slowFirst ? 2 : 1;            // slow mode halves the speed, so push the stick twice as far
+  const o = slowFirst ? 0.1 : 0;          // tap L1 first
+  return {
+    timeline: [
+      ...(slowFirst ? [{ t: 0, buttons: { buttonL1: true } }] : []),
+      { t: o, axes: { axis3: 50 * k } },                 // 400 mm/s × 0.9 s = 360 mm
+      { t: o + 0.9, buttons: { buttonA: true } },        // pick up
+      { t: o + 1.1, axes: { axis3: 50 * k } },           // 400 mm/s × 2.55 s ≈ 1020 mm
+      { t: o + 3.65 },
+      { t: o + 3.75, buttons: { buttonB: true } },       // drop
+      { t: o + 3.95 },
+    ],
+    stopAt: o + 4.5,
+  };
+};
+
+export const SCRIPTS: Record<string, Record<string, DriveScript>> = {
+  "a11-first-driver-program": {
+    "drive-to-target": tankToTarget,
+  },
+  "a12-arcade-drive-buttons": {
+    "arcade-mix": arcadeToTarget,
+    "clamp-deadband": arcadeToTarget,
+    "magnet-button": depotRun(false),
+    "speed-mode": depotRun(true),
   },
 };

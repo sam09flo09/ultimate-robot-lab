@@ -15,6 +15,21 @@ export const COLOURS: Opt[] = [
   ["purple", "PURPLE"], ["white", "WHITE"], ["black", "BLACK"], ["none", "NONE"],
 ];
 const PEN_COLOURS: Opt[] = COLOURS.filter(([, v]) => v !== "NONE");
+const MOTORS: Opt[] = [["left", "left_motor"], ["right", "right_motor"]];
+/** Controller sticks, labelled for people (the Python name is in brackets). Values are AxisName. */
+export const AXIS_OPTIONS: Opt[] = [
+  ["left stick up/down (axis3)", "axis3"],
+  ["left stick left/right (axis4)", "axis4"],
+  ["right stick up/down (axis2)", "axis2"],
+  ["right stick left/right (axis1)", "axis1"],
+];
+/** Controller buttons, labelled for people. Values are ButtonName. */
+export const BUTTON_OPTIONS: Opt[] = [
+  ["A", "buttonA"], ["B", "buttonB"], ["X", "buttonX"], ["Y", "buttonY"],
+  ["L1 (top left)", "buttonL1"], ["L2 (bottom left)", "buttonL2"],
+  ["R1 (top right)", "buttonR1"], ["R2 (bottom right)", "buttonR2"],
+  ["up arrow", "buttonUp"], ["down arrow", "buttonDown"], ["left arrow", "buttonLeft"], ["right arrow", "buttonRight"],
+];
 
 const dd = (name: string, options: Opt[]) => ({ type: "field_dropdown", name, options });
 const num = (name: string) => ({ type: "input_value", name, check: "Number" });
@@ -46,6 +61,14 @@ export const BLOCK_DEFS: Record<string, unknown>[] = [
   { type: "robot_heading", message0: "heading in degrees", ...NUM_OUT, style: "rl_drive", tooltip: "Compass heading, 0 to 359." },
   { type: "robot_rotation", message0: "rotation in degrees", ...NUM_OUT, style: "rl_drive", tooltip: "Total amount turned (can go past 360 or below 0)." },
   { type: "robot_is_done", message0: "drive is done?", ...BOOL_OUT, style: "rl_drive", tooltip: "True when the robot has finished moving." },
+  // ------------------------------------------------------------ motors (driver control; Drivetrain category)
+  { type: "robot_motor_spin", message0: "spin %1 motor %2 at %3 %%", args0: [dd("MOTOR", MOTORS), dd("DIR", DIR_FR), num("VELOCITY")], ...STMT, style: "rl_drive", tooltip: "Spin one wheel's motor and keep it spinning. -100 to 100 percent (a negative number spins it backwards)." },
+  { type: "robot_motor_stop", message0: "stop %1 motor", args0: [dd("MOTOR", MOTORS)], ...STMT, style: "rl_drive", tooltip: "Stop one wheel's motor." },
+  { type: "robot_motor_set_velocity", message0: "set %1 motor velocity to %2 %%", args0: [dd("MOTOR", MOTORS), num("VELOCITY")], ...STMT, style: "rl_drive", tooltip: "Set the speed a motor will spin at (50 to start with)." },
+  { type: "robot_motor_velocity", message0: "%1 motor velocity in %%", args0: [dd("MOTOR", MOTORS)], ...NUM_OUT, style: "rl_drive", tooltip: "The speed this motor was last told to spin at." },
+  // ------------------------------------------------------------ controller (driver control)
+  { type: "robot_controller_axis", message0: "controller %1 position", args0: [dd("AXIS", AXIS_OPTIONS)], ...NUM_OUT, style: "rl_controller", tooltip: "Where a joystick is pushed: -100 (down or left) to 100 (up or right). 0 in the middle." },
+  { type: "robot_controller_button", message0: "controller button %1 pressed?", args0: [dd("BUTTON", BUTTON_OPTIONS)], ...BOOL_OUT, style: "rl_controller", tooltip: "True while that controller button is held down." },
   // ------------------------------------------------------------ sensing
   { type: "robot_distance", message0: "distance in %1", args0: [dd("UNITS", DIST_UNITS)], ...NUM_OUT, style: "rl_sensing", tooltip: "Distance to the nearest thing ahead (3000 mm if nothing)." },
   { type: "robot_distance_found", message0: "distance sensor found object?", ...BOOL_OUT, style: "rl_sensing", tooltip: "True if something is within 1000 mm ahead." },

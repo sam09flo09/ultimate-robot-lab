@@ -6,6 +6,7 @@ export const PALETTE = {
   start: "#D6540E",      // deep orange — the "when started" hat
   drive: "#E9772E",      // warm orange
   sensing: "#2C8C99",    // teal
+  controller: "#3B62C4", // royal blue (driver control)
   pen: "#6E5BC4",        // violet
   magnet: "#B8432F",     // brick
   looks: "#B04A84",      // plum
