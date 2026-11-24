@@ -73,6 +73,14 @@ export function fakeController(over: Partial<FakeState> = {}): { ctl: RobotContr
     setPenColor: (c) => { rec(`setPenColor(${c})`); return st.pen; },
     magnet: (on) => { rec(`magnet(${on})`); return st.magnet; },
     setWheelVelocities: (l, r) => { rec(`wheels(${l},${r})`); },
+    armAvailable: () => false,
+    armSpinTo: () => Promise.resolve(),
+    armSpin: () => undefined,
+    setArmVelocity: () => undefined,
+    armAngle: () => 0,
+    claw: () => Promise.resolve(),
+    clawHolding: () => false,
+
   };
   return { ctl, st };
 }

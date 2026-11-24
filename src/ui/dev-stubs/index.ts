@@ -97,6 +97,14 @@ export function createSim(world: World): Sim {
     setPenColor: (c: ColorName) => { if (!world.hardware?.pen) return false; state.penColor = c; return true; },
     magnet: () => !!world.hardware?.magnet,
     setWheelVelocities: () => undefined,
+    armAvailable: () => false,
+    armSpinTo: () => Promise.resolve(),
+    armSpin: () => undefined,
+    setArmVelocity: () => undefined,
+    armAngle: () => 0,
+    claw: () => Promise.resolve(),
+    clawHolding: () => false,
+
   };
   const sim: Sim = {
     world, state, controller: ctl,
@@ -142,6 +150,7 @@ export function createSim(world: World): Sim {
         return { goal: g, passed: false, detail: "stub" };
       });
     },
+    setConfig() { /* stub */ },
     onEvent(cb) { listeners.add(cb); return () => listeners.delete(cb); },
   };
   return sim;

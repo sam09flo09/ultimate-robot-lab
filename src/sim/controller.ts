@@ -93,6 +93,14 @@ export function createController(e: Engine): RobotController {
       if (on) e.magnetOn(); else e.magnetOff();
       return true;
     },
+    // PLACEHOLDER: the arm agent implements these
+    armAvailable: () => false,
+    armSpinTo: () => Promise.resolve(),
+    armSpin: () => undefined,
+    setArmVelocity: () => undefined,
+    armAngle: () => 0,
+    claw: () => Promise.resolve(),
+    clawHolding: () => false,
     setWheelVelocities(l: number, r: number) { e.setWheels(clampSigned(l), clampSigned(r)); },
   };
   return c;

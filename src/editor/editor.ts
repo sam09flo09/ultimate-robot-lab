@@ -91,6 +91,7 @@ function defaultGoal(type: Goal["type"], w: World): Goal {
     case "noWallHits": return { type };
     case "endFacing": return { type, heading: 0, tolerance: 10 };
     case "maxTime": return { type, seconds: 60 };
+    default: return { type: "reachZone", zone: z }; // PLACEHOLDER: arm agent adds platform goals
   }
 }
 

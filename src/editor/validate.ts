@@ -18,6 +18,8 @@ export const GOAL_LABELS: Record<Goal["type"], string> = {
   noWallHits: "Don't touch any walls",
   endFacing: "Finish facing a direction",
   maxTime: "Finish within a time limit",
+  objectsOnPlatform: "Put objects on a platform",
+  stackHeight: "Build a stack",
 };
 
 export function validateWorld(w: World): Issue[] {

@@ -21,5 +21,6 @@ export function createSim(world: World): Sim {
     abort: () => engine.abort(),
     evaluateGoals: () => engine.evaluateGoals(),
     onEvent: (cb) => engine.onEvent(cb),
+    setConfig: () => engine.reset(), // PLACEHOLDER: the builder agent implements robot designs
   };
 }

@@ -2,7 +2,7 @@
  * SHARED CONTRACT — the public entry point of each subsystem.
  * Each folder's index.ts must export a function matching these signatures.
  *
- *   src/sim/index.ts      export function createSim(world: World): Sim
+ *   src/sim/index.ts      export function createSim(world: World, config?: RobotConfig): Sim
  *   src/render/index.ts   export function createRenderer(canvas: HTMLCanvasElement): Renderer
  *   src/worlds/index.ts   export const PLAYGROUNDS: World[]; export function getPlayground(id): World | undefined
  *   src/runtime/index.ts  export function createPythonRunner(opts: RunnerOptions): PythonRunner
@@ -10,7 +10,7 @@
  *   src/editor/index.ts   export function createLevelEditor(host: HTMLElement, opts: LevelEditorOptions): LevelEditor
  *   src/ui/              the app shell; src/main.ts wires everything together
  */
-import type { World, SimState, RobotController, ColorName } from "./types";
+import type { World, SimState, RobotController, ColorName, RobotConfig } from "./types";
 import type { Activity, ActivityProgress } from "./activity";
 
 // ---------------------------------------------------------------- render
@@ -219,6 +219,8 @@ export interface ProjectFile {
   worldId: string;              // a playground id, or "custom"
   customWorld: World | null;    // embedded when worldId === "custom" (teacher-made challenge)
   savedAt: string;              // ISO date
+  /** builder: the student's robot design (missing = DEFAULT_ROBOT). */
+  robot?: RobotConfig;
   /** Optional: the guided activity this project belongs to, with the student's progress,
    *  so a teacher opening a turned-in file sees which steps were completed. */
   activity?: { activity: Activity; progress: ActivityProgress } | null;

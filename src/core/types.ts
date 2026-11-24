@@ -49,7 +49,17 @@ export interface WorldObject {
   movable: boolean;        // can be pushed
   pickable: boolean;       // magnet can lift it (implies movable)
   rotation?: number;       // boxes only, degrees
+  /** builder: how hard it is to push, in "robot strengths" (default 1). A robot whose
+   *  pushStrength (see RobotConfig) is below this stalls against it instead of pushing it. */
+  mass?: number;
+  /** arm: height of the object's bottom above the floor, mm (0 = on the floor; >0 = on a platform or another object). */
+  z?: number;
+  /** arm: object height, mm (default: disk 30, box = size). Used for stacking and 3D drawing. */
+  height?: number;
 }
+
+/** arm: a raised, solid block objects can be placed on. Robot and floor objects collide with it like a wall. */
+export interface Platform { id: string; x: number; y: number; w: number; h: number; height: number; color?: ColorName; }
 
 /** A named rectangular or circular area used by goals. Not physical. */
 export type Zone =
@@ -63,7 +73,10 @@ export type Goal =
   | { type: "visitInOrder"; zones: string[]; description?: string }
   | { type: "noWallHits"; description?: string }
   | { type: "endFacing"; heading: number; tolerance?: number; description?: string }
-  | { type: "maxTime"; seconds: number; description?: string };   // sim time, not wall-clock
+  | { type: "maxTime"; seconds: number; description?: string }    // sim time, not wall-clock
+  // arm: objects resting on a platform (optionally of a colour), and a stack at least N objects tall
+  | { type: "objectsOnPlatform"; platform: string; count: number; color?: ColorName; description?: string }
+  | { type: "stackHeight"; count: number; zone?: string; description?: string };
 
 /**
  * Race / time-trial settings (optional, additive). A race is finished when the robot enters
@@ -90,13 +103,42 @@ export interface World {
   zones: Zone[];
   goals: Goal[];
   /** Which optional robot hardware is fitted in this world. Missing = false. */
-  hardware?: { pen?: boolean; magnet?: boolean };
+  hardware?: { pen?: boolean; magnet?: boolean; arm?: boolean };
+  /** arm: raised platforms (default none). */
+  platforms?: Platform[];
+  /** builder: limits for this world's robot. Missing = any legal RobotConfig.
+   *  `locked` = students can't change the robot here (e.g. a fair race). */
+  robotRules?: { locked?: boolean; maxSize?: number; config?: Partial<RobotConfig> };
   /** Starter code for this playground, if any. */
   starter?: { python?: string };
   /** Race / time-trial mode (see RaceSpec). Missing = not a race. */
   race?: RaceSpec;
   version: 1;
 }
+
+// ---------------------------------------------------------------- robot builder
+
+/**
+ * builder: the student's robot design. Every field has a default, so a missing config = today's robot.
+ * Physics (sim/): top wheel speed = 800 mm/s × (wheelDiameter / 100) ÷ gearRatio;
+ *   pushStrength = (motors / 2) × gearRatio × (100 / wheelDiameter)  (default robot = 1.0).
+ *   Turn rate follows from wheel speed and track width (= size − 20 mm).
+ *   drive_for distances and turn_for angles stay exact; only how long they take changes.
+ */
+export interface RobotConfig {
+  size: number;            // square footprint side, mm: 120..200, default 140
+  wheelDiameter: number;   // mm: 60, 80, 100 (default), 130
+  gearRatio: number;       // output torque multiplier: 1/3, 1/2, 1 (default), 2, 3  (higher = slower, stronger)
+  motors: 2 | 4;           // default 2; 4 doubles push strength
+  /** Where the distance sensor and front eye sit along the front edge, mm from centre (−size/2..size/2). Default 0. */
+  sensorOffset: number;
+  name?: string;           // student's robot name, shown in the builder
+}
+export const DEFAULT_ROBOT: RobotConfig = { size: 140, wheelDiameter: 100, gearRatio: 1, motors: 2, sensorOffset: 0 };
+
+/** arm: live arm/claw state. Arm angle 0 = down (claw at floor level), 90 = straight up.
+ *  Claw reach is ~110 mm in front of the robot's front face; lift height at angle a = 300 × sin(a) mm. */
+export interface ArmState { angle: number; clawClosed: boolean; holding: string | null; }
 
 // ---------------------------------------------------------------- simulation state
 
@@ -117,6 +159,10 @@ export interface SimState {
   /** Ray from distance sensor this frame, for drawing. null if nothing in range. */
   distanceRay: { from: Vec; to: Vec; hit: boolean } | null;
   visitedZones: string[];        // zone ids in first-entry order
+  /** builder: the robot design in use (DEFAULT_ROBOT if none). robotSize === config.size. */
+  config?: RobotConfig;
+  /** arm: present only when the world fits an arm. */
+  arm?: ArmState;
 }
 
 export interface GoalResult { goal: Goal; passed: boolean; detail: string; }
@@ -186,10 +232,25 @@ export interface RobotController {
    *  promise, like stop()). 0,0 stops. Track width (wheel to wheel) = 120 mm. Collisions, pushing,
    *  wall hits and the bumper behave as for drive(). Runs until changed, stop(), or abort(). */
   setWheelVelocities(leftPercent: number, rightPercent: number): void;
+
+  // arm (only in worlds with hardware.arm; otherwise armAvailable() is false and the rest are no-ops)
+  armAvailable(): boolean;
+  /** Move the arm to an angle 0..90 at the arm velocity; resolves when there (or blocked). */
+  armSpinTo(degrees: number): Promise<void>;
+  /** Continuous arm motion: +1 up, −1 down, 0 stop. */
+  armSpin(direction: 1 | -1 | 0): void;
+  setArmVelocity(percent: number): void;  // default 50% = 60°/s
+  armAngle(): number;
+  /** Close (grab the object between the claw jaws, if any) or open (release it where it is:
+   *  onto a platform/stack top if over one, else to the floor). Resolves after ~0.3 s sim time. */
+  claw(closed: boolean): Promise<void>;
+  clawHolding(): boolean;
 }
 
 export interface Sim {
   readonly world: World;
+  /** builder: swap the robot design (clamped to legal values and world.robotRules); also resets. */
+  setConfig(config: RobotConfig): void;
   readonly state: SimState;
   readonly controller: RobotController;
   /** Advance simulated time. Called by the app loop with (realDt * speedMultiplier). */
