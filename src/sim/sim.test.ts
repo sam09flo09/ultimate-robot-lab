@@ -583,3 +583,206 @@ describe("abort / reset / determinism", () => {
     expect(ms).toBeLessThan(500);
   });
 });
+
+describe("driver control: setWheelVelocities (differential drive)", () => {
+  const center = makeWorld({ start: { x: 0, y: 0, heading: 0 } });
+
+  it("equal wheels drive straight at the same speed as drive()", async () => {
+    const a = createSim(center), b = createSim(center);
+    a.controller.setWheelVelocities(50, 50);
+    b.controller.drive("FORWARD");
+    await steps(a, 1); await steps(b, 1);
+    expect(a.state.robot.y).toBeCloseTo(400, 6);
+    expect(a.state.robot.x).toBe(0);
+    expect(a.state.robot.y).toBeCloseTo(b.state.robot.y, 9);
+    expect(a.state.robot.heading).toBe(0);
+    // at 100% it is 800 mm/s, and negative is backwards
+    const c = createSim(center);
+    c.controller.setWheelVelocities(-100, -100);
+    await steps(c, 0.5);
+    expect(c.state.robot.y).toBeCloseTo(-400, 6);
+  });
+
+  it("opposite wheels spin in place at (vl - vr) / track", async () => {
+    const sim = createSim(center);
+    sim.controller.setWheelVelocities(50, -50);
+    await steps(sim, 0.5);
+    const expectedDeg = ((800 / 120) * 180 / Math.PI) * 0.5; // 400 - (-400) mm/s over 120 mm
+    expect(sim.controller.rotation()).toBeCloseTo(expectedDeg, 3);
+    expect(Math.hypot(sim.state.robot.x, sim.state.robot.y)).toBeLessThan(1e-6);
+    // left slower than right turns LEFT (anticlockwise)
+    const s2 = createSim(center);
+    s2.controller.setWheelVelocities(-25, 25);
+    await steps(s2, 0.25);
+    expect(s2.controller.rotation()).toBeLessThan(0);
+  });
+
+  it("arcs have radius track/2 * (l + r) / (l - r)", async () => {
+    const sim = createSim(center);
+    sim.controller.setWheelVelocities(100, 50); // R = 60 * 150 / 50 = 180 mm, turning right (centre at +x)
+    let maxErr = 0;
+    for (let i = 0; i < 120; i++) {
+      sim.step(1 / 60);
+      const r = sim.state.robot;
+      maxErr = Math.max(maxErr, Math.abs(Math.hypot(r.x - 180, r.y) - 180));
+    }
+    expect(maxErr).toBeLessThan(1e-6);
+    expect(sim.state.wallHits).toBe(0);
+    // heading follows the tangent: after the arc it equals the angle swept
+    const r = sim.state.robot;
+    const swept = Math.atan2(r.y, 180 - r.x); // angle around the centre, clockwise from the start
+    expect(sim.controller.rotation() % 360).toBeCloseTo(((swept * 180) / Math.PI + 360) % 360, 4);
+  });
+
+  it("arcing into walls never clips through, counts one hit per contact, presses the bumper", async () => {
+    const w = makeWorld({
+      start: { x: 0, y: 0, heading: 0 },
+      walls: [{ a: { x: -600, y: 300 }, b: { x: 600, y: 300 }, thickness: 10 }],
+    });
+    const sim = createSim(w);
+    sim.controller.setWheelVelocities(100, 80);
+    let bumper = false;
+    for (let i = 0; i < 360; i++) {
+      sim.step(1 / 60);
+      const r = sim.state.robot;
+      // the robot's square never reaches past the wall's near face (y = 295)
+      const ext = 70 * (Math.abs(Math.cos((r.heading * Math.PI) / 180)) + Math.abs(Math.sin((r.heading * Math.PI) / 180)));
+      expect(r.y + ext).toBeLessThan(295 + 0.5);
+      expect(Math.abs(r.x) + ext).toBeLessThanOrEqual(1000 + 1e-6);
+      if (sim.state.bumperPressed) bumper = true;
+    }
+    expect(sim.state.wallHits).toBeGreaterThanOrEqual(1);
+    expect(bumper).toBe(true);
+    // spinning at full speed against the corner of the field: stays inside, never tunnels
+    const s2 = createSim(makeWorld({ start: { x: 900, y: 900, heading: 45 } }));
+    s2.controller.setWheelVelocities(100, -100);
+    for (let i = 0; i < 240; i++) {
+      s2.step(1 / 60);
+      const r = s2.state.robot;
+      const ext = 70 * (Math.abs(Math.cos((r.heading * Math.PI) / 180)) + Math.abs(Math.sin((r.heading * Math.PI) / 180)));
+      expect(Math.max(Math.abs(r.x), Math.abs(r.y)) + ext).toBeLessThanOrEqual(1000 + 0.05);
+    }
+  });
+
+  it("pressing into a wall with the wheels spinning counts as one hit", async () => {
+    const sim = createSim(makeWorld({ start: { x: 0, y: 800, heading: 0 } }));
+    sim.controller.setWheelVelocities(60, 60);
+    await steps(sim, 2);
+    expect(sim.state.wallHits).toBe(1);
+    expect(sim.state.robot.y).toBeCloseTo(930, 3);
+    expect(sim.state.bumperPressed).toBe(true);
+    // backing away and driving in again is a second hit
+    sim.controller.setWheelVelocities(-60, -60);
+    await steps(sim, 0.5);
+    sim.controller.setWheelVelocities(60, 60);
+    await steps(sim, 1);
+    expect(sim.state.wallHits).toBe(2);
+  });
+
+  it("pushes movable objects and stops at immovable ones", async () => {
+    const sim = createSim(makeWorld({
+      start: { x: 0, y: 0, heading: 0 },
+      objects: [disk("m", 0, 200), disk("wall", 400, 0, { movable: false })],
+    }));
+    sim.controller.setWheelVelocities(50, 50);
+    await steps(sim, 1);
+    expect(sim.state.objects[0].y).toBeGreaterThan(200 + 100);
+    const s2 = createSim(makeWorld({ start: { x: 0, y: 0, heading: 90 }, objects: [disk("wall", 300, 0, { movable: false })] }));
+    s2.controller.setWheelVelocities(50, 50);
+    await steps(s2, 2);
+    expect(s2.state.robot.x).toBeCloseTo(300 - 40 - 70, 1);
+    expect(s2.state.objects[0].x).toBe(300);
+  });
+
+  it("supersedes drive/turn motions (resolving them) and is superseded by them", async () => {
+    const sim = createSim(center);
+    let resolved = false;
+    sim.controller.driveFor("FORWARD", 1000).then(() => { resolved = true; });
+    await steps(sim, 0.25);
+    sim.controller.setWheelVelocities(50, -50);
+    await flush();
+    expect(resolved).toBe(true);
+    expect(sim.controller.isDone()).toBe(false);
+    const y = sim.state.robot.y;
+    await steps(sim, 0.25);
+    expect(sim.state.robot.y).toBeCloseTo(y, 6); // spinning in place now
+    // a drive_for replaces the wheel motion
+    const p = sim.controller.driveFor("FORWARD", 100);
+    const h = sim.state.robot.heading;
+    await run(sim, () => p);
+    expect(sim.state.robot.heading).toBe(h);
+    expect(sim.controller.isDone()).toBe(true);
+    // stop() ends it too
+    sim.controller.setWheelVelocities(30, 30);
+    sim.controller.stop();
+    expect(sim.controller.isDone()).toBe(true);
+    const before = { ...sim.state.robot };
+    await steps(sim, 0.2);
+    expect(sim.state.robot).toEqual(before);
+  });
+
+  it("0,0 stops; values are clamped to -100..100; NaN is 0", async () => {
+    const sim = createSim(center);
+    sim.controller.setWheelVelocities(500, 500);
+    await steps(sim, 0.5);
+    expect(sim.state.robot.y).toBeCloseTo(400, 6);
+    sim.controller.setWheelVelocities(0, 0);
+    expect(sim.controller.isDone()).toBe(true);
+    const y = sim.state.robot.y;
+    await steps(sim, 0.2);
+    expect(sim.state.robot.y).toBe(y);
+    sim.controller.setWheelVelocities(NaN, Number.NaN);
+    expect(sim.controller.isDone()).toBe(true);
+    sim.controller.setWheelVelocities(NaN, 50);
+    expect(sim.controller.isDone()).toBe(false);
+  });
+
+  it("is busy for goal settling while the wheels spin", async () => {
+    const w = makeWorld({
+      start: { x: 0, y: 0, heading: 0 },
+      zones: [{ id: "z", kind: "rect", x: 0, y: 0, w: 1000, h: 1000 }],
+      goals: [{ type: "reachZone", zone: "z" }, { type: "endFacing", heading: 0, tolerance: 360 }],
+    });
+    const sim = createSim(w);
+    const events: SimEvent[] = [];
+    sim.onEvent((e) => events.push(e));
+    sim.controller.setWheelVelocities(20, -20);
+    await steps(sim, 1);
+    expect(events.some((e) => e.type === "goalsComplete")).toBe(false);
+    sim.controller.setWheelVelocities(0, 0);
+    await steps(sim, 0.5);
+    expect(events.some((e) => e.type === "goalsComplete")).toBe(true);
+  });
+
+  it("draws with the pen, leaves a path and carries with the magnet", async () => {
+    const sim = createSim(makeWorld({
+      start: { x: 0, y: 0, heading: 0 }, hardware: { pen: true, magnet: true },
+      objects: [disk("p", 0, 115, { pickable: true })],
+    }));
+    sim.controller.penDown(true);
+    expect(sim.controller.magnet(true)).toBe(true);
+    expect(sim.state.carrying).toBe("p");
+    sim.controller.setWheelVelocities(100, 50);
+    await steps(sim, 1);
+    expect(sim.state.strokes[0].points.length).toBeGreaterThan(20);
+    expect(sim.state.path.length).toBeGreaterThan(10);
+    const r = sim.state.robot, o = sim.state.objects[0];
+    expect(Math.hypot(o.x - r.x, o.y - r.y)).toBeCloseTo(70 + 40 + 1, 6);
+  });
+
+  it("is deterministic for the same dt sequence", async () => {
+    const go = async () => {
+      const sim = createSim(makeWorld({
+        start: { x: 0, y: 0, heading: 10 },
+        walls: [{ a: { x: 300, y: -500 }, b: { x: 300, y: 500 }, thickness: 20 }],
+        objects: [disk("a", 100, 200)],
+      }));
+      sim.controller.setWheelVelocities(90, 40);
+      await steps(sim, 1.3, 0.0173);
+      sim.controller.setWheelVelocities(-30, 70);
+      await steps(sim, 0.9, 0.0173);
+      return JSON.stringify(sim.state);
+    };
+    expect(await go()).toBe(await go());
+  });
+});

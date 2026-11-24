@@ -61,3 +61,39 @@ describe("createLockstep", () => {
     expect(n).toBe(12);
   });
 });
+
+describe("driver control in races", () => {
+  it("wheels spinning count as the robot moving, so race time passes while driving with motors", async () => {
+    const { runRace } = await import("./runRace");
+    const { loadSkulpt } = await import("../runtime/testkit");
+    loadSkulpt();
+    const world = {
+      id: "motor-race", name: "Motor race", width: 2000, height: 2000, start: { x: 0, y: -800, heading: 0 },
+      walls: [], floor: [], objects: [],
+      zones: [{ id: "fin", kind: "rect" as const, x: 0, y: 600, w: 400, h: 100 }],
+      goals: [{ type: "visitInOrder" as const, zones: ["fin"] }],
+      race: { finishZone: "fin" },
+      version: 1 as const,
+    };
+    // Python busy-polls (never waits on the robot): only the spinning wheels let sim time pass.
+    const src = [
+      "def main():",
+      "    left_motor.spin(FORWARD, 100, PERCENT)",
+      "    right_motor.spin(FORWARD, 100, PERCENT)",
+      "    while True:",
+      "        pass",
+      "",
+      "start(main)",
+      "",
+    ].join("\n");
+    const t0 = Date.now();
+    const run = await runRace(world, src, [1 / 60], 10);
+    expect(run.finishTime).not.toBeNull();
+    expect(run.finishTime!).toBeGreaterThan(1.6);
+    expect(run.finishTime!).toBeLessThan(1.8); // 1350 mm at 800 mm/s, no idle stalls
+    expect(Date.now() - t0).toBeLessThan(5000);
+    const sim = createSim(world);
+    sim.controller.setWheelVelocities(30, -30);
+    expect(sim.controller.isDone()).toBe(false);
+  });
+});

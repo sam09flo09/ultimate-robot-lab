@@ -21,7 +21,11 @@ export const MAX_FILES = 200;
 export const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const OUTPUT_CAP = 200;
 
-export type GradeStatus = "finished" | "error" | "timeout" | "nostart" | "invalid";
+/** "driver" = a driver-control program (it read the controller) that never ended: it needs a person
+ *  on the controller, so it can't be graded automatically. */
+export type GradeStatus = "finished" | "error" | "timeout" | "driver" | "nostart" | "invalid";
+export const DRIVER_STATUS_TEXT = "Needs a driver";
+export const DRIVER_DETAIL = "This is a driver-control program: it needs a person on the controller, so it can't be graded automatically. Open it in Robot Lab to try it.";
 /** For the filter: passed = ran, every goal passed and (if an activity) the current step re-checks OK. */
 export type Verdict = "passed" | "notpassed" | "error";
 
@@ -156,6 +160,7 @@ export async function gradeProject(project: ProjectFile, fileName: string, opts:
     turnToHeading: (deg) => track(base.turnToHeading(deg)),
     wait: (s) => track(base.wait(s)),
   };
+  let readController = false;
   const output: string[] = [];
   const pushOut = (t: string) => { if (output.length < OUTPUT_CAP) output.push(t); };
   const runner = createPythonRunner({
@@ -163,6 +168,7 @@ export async function gradeProject(project: ProjectFile, fileName: string, opts:
     onLine: () => {},
     onLog: (e) => { if (e.kind === "print") pushOut(e.text); },
     onScreen: (op) => { if (op.kind === "print") pushOut(op.text); },
+    onControllerUsed: () => { readController = true; },
   });
 
   let result: RunResult | null = null;
@@ -201,7 +207,11 @@ export async function gradeProject(project: ProjectFile, fileName: string, opts:
   try { for (let i = 0; i < 40; i++) sim.step(dt); } catch { /* ignore */ } // let objects settle (as the app does)
 
   const res = result as RunResult | null;
-  if (timedOut || !res || res.status === "stopped") {
+  if (readController && timedOut !== "cancel" && (timedOut || !res || res.status === "stopped")) {
+    r.status = "driver";
+    r.statusText = DRIVER_STATUS_TEXT;
+    r.errorText = DRIVER_DETAIL;
+  } else if (timedOut || !res || res.status === "stopped") {
     r.status = "timeout";
     r.statusText = timedOut === "cancel" ? "Cancelled" : "Timed out";
     r.errorText = timedOut === "sim"

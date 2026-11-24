@@ -21,9 +21,9 @@
  */
 import type { RobotController, ColorName, DriveDir, TurnDir } from "../core/types";
 import type { RunnerOptions, PythonRunner, RunResult, FriendlyError } from "../core/modules";
-import { CONSTANTS, COLOR_CONSTS } from "./names";
+import { CONSTANTS, COLOR_CONSTS, CONTROLLER_AXES, CONTROLLER_BUTTONS, axisClass, buttonClass, MOTOR_CLASSES } from "./names";
 import { friendly, precheck, MISSING_START_TEXT, type ErrorInfo } from "./friendly";
-import type { RunOptions, VarView } from "../core/modules";
+import type { RunOptions, VarView, ControllerState } from "../core/modules";
 import { collectVars } from "../debug/vars";
 
 export { friendly, precheck, closestName, editDistance, esc } from "./friendly";
@@ -89,6 +89,16 @@ interface Ctx {
   waiters: (() => void)[]; // run on resume (held-back continuations)
   awaiting: number;       // controller promises Python is currently waiting for
   lastSusp: any;          // most recent Skulpt suspension (for variables)
+  controllerUsed: boolean; // driver control: the program has read the controller
+}
+
+/** Driver control: one motor's state for the current run. */
+interface MotorState {
+  setting: number;        // velocity it was last told (set_velocity / spin's velocity), percent
+  dir: 1 | -1;            // direction of the last spin
+  spinning: boolean;
+  logged: string | null;  // the last spin/stop log text (motor calls are only logged when they change)
+  warned: boolean;        // the out-of-range warning was shown
 }
 
 export function createPythonRunner(opts: RunnerOptions): PythonRunner {
@@ -103,6 +113,7 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
         logCount: 0, logCapped: false, lastStepText: null, outBuf: "",
         emitted: 0, pendingLine: 0, sliceEmits: 0, lastYield: Date.now(),
         pauseReq: !!runOpts.startPaused, paused: false, haltNext: false, stepping: null, waiters: [], awaiting: 0, lastSusp: null,
+        controllerUsed: false,
         finish: (r) => {
           if (ctx.settled) return;
           ctx.settled = true;
@@ -301,7 +312,11 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
     return "";
   }
   function needNumber(s: Spec, what: string, v: any, example: string): number {
-    if (!isNum(v)) oops("TypeError", s.label + " " + what + " must be a number, like " + example + ". You gave " + argName(v) + ".");
+    if (!isNum(v)) {
+      let hint = "";
+      try { if (v !== undefined && !(v instanceof Sk.builtin.str) && Sk.builtin.checkCallable(v)) hint = " That is a command without its (): add () to use its value, like controller.axis3.position()."; } catch { /* ignore */ }
+      oops("TypeError", s.label + " " + what + " must be a number, like " + example + ". You gave " + argName(v) + "." + hint);
+    }
     const x = num(v);
     if (!isFinite(x)) oops("ValueError", s.label + " " + what + " must be a normal number. You gave " + argName(v) + ".");
     return x;
@@ -408,6 +423,17 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
       return Sk.misceval.callsimArray(cls, []);
     }
 
+    // ---- driver control: motors (state is per run; drivetrain motions switch them off)
+    const motors: Record<"left_motor" | "right_motor", MotorState> = {
+      left_motor: { setting: 50, dir: 1, spinning: false, logged: null, warned: false },
+      right_motor: { setting: 50, dir: 1, spinning: false, logged: null, warned: false },
+    };
+    const wheel = (m: MotorState) => (m.spinning ? m.dir * m.setting : 0);
+    /** A drivetrain motion took over the wheels (the sim cancels the wheel motion itself). */
+    function motorsOff() {
+      for (const m of Object.values(motors)) { m.spinning = false; m.logged = null; }
+    }
+
     // ---- drivetrain
     const S = {
       drive_for: { label: "drive_for", params: ["direction", "distance", "units"], required: 3, kw: ["wait"], example: "drivetrain.drive_for(FORWARD, 200, MM)" },
@@ -457,6 +483,7 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
         const wait = needWait(s, kw.wait);
         let mm = dist * (u === "INCHES" ? 25.4 : 1);
         if (mm < 0) { mm = -mm; d = d === "FORWARD" ? "REVERSE" : "FORWARD"; }
+        motorsOff();
         return motion(callText("drive_for", a, kw), ctl.driveFor(d, mm), wait);
       }),
       turn_for: api(S.turn_for, (a, kw) => {
@@ -467,6 +494,7 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
         const wait = needWait(s, kw.wait);
         let deg = ang;
         if (deg < 0) { deg = -deg; d = d === "LEFT" ? "RIGHT" : "LEFT"; }
+        motorsOff();
         return motion(callText("turn_for", a, kw), ctl.turnFor(d, deg), wait);
       }),
       turn_to_heading: api(S.turn_to_heading, (a, kw) => {
@@ -474,11 +502,12 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
         const ang = needNumber(s, "angle", a[0], "90");
         needUnit(s, a[1], ["DEGREES"]);
         const wait = needWait(s, kw.wait);
+        motorsOff();
         return motion(callText("turn_to_heading", a, kw), ctl.turnToHeading(ang), wait);
       }),
-      drive: api(S.drive, (a) => { const d = driveDir(S.drive, a[0]); step(callText("drive", a, {}), true); ctl.drive(d); return none(); }),
-      turn: api(S.turn, (a) => { const d = turnDir(S.turn, a[0]); step(callText("turn", a, {}), true); ctl.turn(d); return none(); }),
-      stop: api(S.stop, () => { step("stop()", true); ctl.stop(); return none(); }),
+      drive: api(S.drive, (a) => { const d = driveDir(S.drive, a[0]); motorsOff(); step(callText("drive", a, {}), true); ctl.drive(d); return none(); }),
+      turn: api(S.turn, (a) => { const d = turnDir(S.turn, a[0]); motorsOff(); step(callText("turn", a, {}), true); ctl.turn(d); return none(); }),
+      stop: api(S.stop, () => { motorsOff(); step("stop()", true); ctl.stop(); return none(); }),
       set_drive_velocity: api(S.set_drive_velocity, (a) => {
         const v = velocity(S.set_drive_velocity, a); step(callText("set_drive_velocity", a, {}), true); ctl.setDriveVelocity(v); return none();
       }),
@@ -586,6 +615,95 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
     });
     const brain = makeObject("Brain", { screen, timer });
 
+    // ---- driver control: controller
+    function readInput(): ControllerState | null {
+      if (!ctx.controllerUsed) {
+        ctx.controllerUsed = true;
+        try { opts.onControllerUsed?.(); } catch (e) { console.error(e); }
+      }
+      if (!opts.input) return null;
+      try { return opts.input.read(); } catch { return null; }
+    }
+    const ctlParts: Record<string, any> = {};
+    for (const ax of CONTROLLER_AXES) {
+      const spec = { label: "controller." + ax + ".position", params: ["units"], required: 0, example: "controller." + ax + ".position()" };
+      ctlParts[ax] = makeObject(axisClass(ax), {
+        position: api(spec, (a) => {
+          needUnit(spec, a[0], ["PERCENT"], "PERCENT");
+          const st = readInput();
+          let v = st ? Number(st.axes[ax]) : 0;
+          if (!isFinite(v)) v = 0;
+          v = Math.max(-100, Math.min(100, Math.round(v)));
+          return pyInt(v === 0 ? 0 : v);
+        }),
+      });
+    }
+    for (const b of CONTROLLER_BUTTONS) {
+      const spec = { label: "controller." + b + ".pressing", params: [], required: 0, example: "controller." + b + ".pressing()" };
+      ctlParts[b] = makeObject(buttonClass(b), {
+        pressing: api(spec, () => { const st = readInput(); return pyBool(!!(st && st.buttons[b])); }),
+      });
+    }
+    const controller = makeObject("Controller", ctlParts);
+
+    // ---- driver control: motors
+    function motorObject(name: "left_motor" | "right_motor") {
+      const m = motors[name];
+      const SP = { label: name + ".spin", params: ["direction", "velocity", "units"], required: 1, example: name + ".spin(FORWARD, 50, PERCENT)" };
+      const ST = { label: name + ".stop", params: [], required: 0, example: name + ".stop()" };
+      const SV = { label: name + ".set_velocity", params: ["velocity", "units"], required: 1, example: name + ".set_velocity(50, PERCENT)" };
+      const VE = { label: name + ".velocity", params: ["units"], required: 0, example: name + ".velocity(PERCENT)" };
+      const apply = () => { ctl.setWheelVelocities(wheel(motors.left_motor), wheel(motors.right_motor)); };
+      /** Log only when what the motor does changes (driver loops call spin every 20 ms). */
+      const logChange = (text: string) => {
+        const key = m.spinning ? "spin " + wheel(m) : "stop";
+        if (m.logged === key) return;
+        m.logged = key;
+        step(text);
+      };
+      const pct = (s: Spec, v: any): number => {
+        const x = needNumber(s, "velocity", v, "50");
+        const c = Math.max(-100, Math.min(100, x));
+        if (c !== x && !m.warned) { m.warned = true; log(ctx, s.label + " uses -100 to 100 PERCENT, so " + x + " became " + c + ".", "warn"); }
+        return c;
+      };
+      return makeObject(MOTOR_CLASSES[name], {
+        spin: api(SP, (a) => {
+          const d = constOf(a[0]);
+          if (d === "LEFT" || d === "RIGHT") {
+            oops("ValueError", SP.label + " direction is FORWARD or REVERSE. To turn, spin the two motors at different speeds, like left_motor.spin(FORWARD) and right_motor.spin(REVERSE).");
+          }
+          if (d !== "FORWARD" && d !== "REVERSE") oops("ValueError", SP.label + " direction must be FORWARD or REVERSE, not " + argName(a[0]) + "." + constHint(a[0]));
+          if (a.length > 1) {
+            const v = pct(SP, a[1]);
+            needUnit(SP, a[2], ["PERCENT"], "PERCENT");
+            m.setting = v;
+          }
+          m.dir = d === "REVERSE" ? -1 : 1;
+          m.spinning = true;
+          apply();
+          logChange(name + "." + callText("spin", a, {}));
+          return none();
+        }),
+        stop: api(ST, () => {
+          m.spinning = false;
+          apply();
+          logChange(name + ".stop()");
+          return none();
+        }),
+        set_velocity: api(SV, (a) => {
+          const v = pct(SV, a[0]);
+          needUnit(SV, a[1], ["PERCENT"], "PERCENT");
+          const changed = v !== m.setting;
+          m.setting = v;
+          if (m.spinning) { apply(); logChange(name + "." + callText("set_velocity", a, {})); }
+          else if (changed) step(name + "." + callText("set_velocity", a, {}));
+          return none();
+        }),
+        velocity: api(VE, (a) => { needUnit(VE, a[0], ["PERCENT"], "PERCENT"); return m.setting % 1 === 0 ? pyInt(m.setting) : pyFloat(m.setting); }),
+      });
+    }
+
     // ---- top-level functions
     const W = { label: "wait", params: ["time", "units"], required: 1, example: "wait(1, SECONDS)" };
     const waitFn = api(W, (a) => {
@@ -614,7 +732,8 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
     for (const c of CONSTANTS) Sk.builtins[c] = pyStr(c);
     Object.assign(Sk.builtins, {
       drivetrain, distance, front_eye: eye("front_eye"), down_eye: eye("down_eye"), bumper, location,
-      pen, magnet, brain, wait: waitFn, start: startFn,
+      pen, magnet, brain, controller, left_motor: motorObject("left_motor"), right_motor: motorObject("right_motor"),
+      wait: waitFn, start: startFn,
     });
 
     Sk.configure({

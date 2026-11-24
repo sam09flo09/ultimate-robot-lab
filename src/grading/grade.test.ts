@@ -70,6 +70,35 @@ describe("gradeProject", () => {
     expect(r.errorText).toMatch(/20 s of robot time/);
   });
 
+  it("a driver-control loop that never ends 'needs a driver' (sim-time cap and wall-clock cap)", async () => {
+    const loop = (withWait: boolean) => project(prog(
+      "def main():", "    while True:",
+      "        left_motor.spin(FORWARD, controller.axis3.position(), PERCENT)",
+      "        right_motor.spin(FORWARD, controller.axis2.position(), PERCENT)",
+      ...(withWait ? ["        wait(20, MSEC)"] : []),
+      "", "start(main)"));
+    const r = await gradeProject(loop(true), "drv.robolab", { simSeconds: 5, wallMs: 10000 });
+    expect(r.status).toBe("driver");
+    expect(r.statusText).toBe("Needs a driver");
+    expect(r.errorText).toBe("This is a driver-control program: it needs a person on the controller, so it can't be graded automatically. Open it in Robot Lab to try it.");
+    expect(r.verdict).toBe("notpassed");
+    const r2 = await gradeProject(loop(false), "drv2.robolab", { wallMs: 600 });
+    expect(r2.status).toBe("driver");
+    // CSV carries the status and the explanation
+    const csv = toCsv([r]);
+    expect(csv).toContain("Needs a driver");
+    expect(csv).toContain("it needs a person on the controller");
+  });
+
+  it("a program that reads the controller but finishes is graded normally; non-driver loops still time out", async () => {
+    const r = await gradeProject(project(prog(
+      "def main():", "    if not controller.buttonA.pressing():", "        drivetrain.drive_for(FORWARD, 1000, MM)", "", "start(main)")), "f.robolab");
+    expect(r.status).toBe("finished");
+    expect(r.verdict).toBe("passed");
+    const t = await gradeProject(project(prog("def main():", "    while True:", "        wait(1, SECONDS)", "", "start(main)")), "g.robolab", { simSeconds: 5, wallMs: 10000 });
+    expect(t.status).toBe("timeout");
+  });
+
   it("handles busy polling loops (drive + sensor check, no wait)", async () => {
     const r = await gradeProject(project(prog(
       "def main():", "    drivetrain.drive(FORWARD)", "    while location.position(Y, MM) < 400:", "        pass",
