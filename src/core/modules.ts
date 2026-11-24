@@ -76,6 +76,21 @@ export interface RunnerOptions {
   onLog: (entry: { line: number; text: string; kind: "step" | "print" | "warn" }) => void;
   /** brain.screen output (separate from the log). */
   onScreen?: (op: { kind: "print"; text: string } | { kind: "clear" } | { kind: "newline" }) => void;
+  /** debugger: fires when the program halts (pause(), step(), or a run started paused).
+   *  `line` is the line about to run (or the motion line still in progress); `vars` = the student's variables. */
+  onPause?: (info: { line: number; vars: VarView[] }) => void;
+}
+/** debugger: one row of the Variables panel. `value` is a short, safe repr (≤ ~80 chars). */
+export interface VarView {
+  name: string;
+  value: string;
+  type: string;              // "int", "float", "str", "list", ...
+  scope: "global" | "local";
+}
+/** debugger: options for PythonRunner.run(). */
+export interface RunOptions {
+  /** Halt before the first line (for "Step through"). */
+  startPaused?: boolean;
 }
 export interface FriendlyError {
   line: number;            // 0 if unknown
@@ -90,10 +105,22 @@ export type RunResult =
 
 export interface PythonRunner {
   /** Runs to completion (or stop/error). Never rejects — errors come back as RunResult. */
-  run(source: string): Promise<RunResult>;
-  /** Request stop; the pending run() resolves with {status:"stopped"} soon after. */
+  run(source: string, runOpts?: RunOptions): Promise<RunResult>;
+  /** Request stop; the pending run() resolves with {status:"stopped"} soon after. Works while paused. */
   stop(): void;
   readonly running: boolean;
+  // ---- debugger (additive)
+  /** Halt at the next line. If the program is waiting for a motion or wait(), it halts right away
+   *  (the app must stop stepping the sim while `paused`, so the robot freezes mid-motion). */
+  pause(): void;
+  /** Carry on after a pause. */
+  resume(): void;
+  /** While paused: run until the next line, then pause again. While running: same as pause(). */
+  step(): void;
+  /** True while the program is halted. */
+  readonly paused: boolean;
+  /** The student's variables as of the last time Python handed control back (cheap; for live updates). */
+  variables(): VarView[];
 }
 
 // ---------------------------------------------------------------- blocks

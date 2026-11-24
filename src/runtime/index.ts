@@ -11,11 +11,20 @@
  *    (and the app's rAF loop that steps the sim) keeps running during `while True:` loops.
  *  - Stop: the run is marked stopped and its Skulpt continuation is simply never resumed
  *    (pending controller promises and yields are swallowed). Student try/except can't catch it.
+ *  - debugger (pause / step / resume): the breakpoint callback asks Skulpt to suspend at the next
+ *    statement when a pause is wanted; the suspension handler then returns a promise that only settles
+ *    on resume()/step() (and never after stop(), so Stop still works while paused). If pause() comes
+ *    while Python is waiting for a motion or wait(), the run is marked paused at once and the motion's
+ *    result is held back until resume; the app stops stepping the sim while `paused`, so the robot
+ *    freezes mid-motion and carries on exactly where it was. Variables are read from the latest
+ *    suspension chain (see src/debug/vars.ts).
  */
 import type { RobotController, ColorName, DriveDir, TurnDir } from "../core/types";
 import type { RunnerOptions, PythonRunner, RunResult, FriendlyError } from "../core/modules";
 import { CONSTANTS, COLOR_CONSTS } from "./names";
 import { friendly, precheck, MISSING_START_TEXT, type ErrorInfo } from "./friendly";
+import type { RunOptions, VarView } from "../core/modules";
+import { collectVars } from "../debug/vars";
 
 export { friendly, precheck, closestName, editDistance, esc } from "./friendly";
 
@@ -72,22 +81,32 @@ interface Ctx {
   sliceEmits: number;
   lastYield: number;      // Date.now() when Python last gave the browser a turn
   finish: (r: RunResult) => void;
+  // debugger
+  pauseReq: boolean;      // halt at the next statement
+  paused: boolean;        // halted (waiting for resume/step/stop)
+  haltNext: boolean;      // the breakpoint callback asked for a suspension because of a pause
+  stepping: { from: number; same: number } | null;
+  waiters: (() => void)[]; // run on resume (held-back continuations)
+  awaiting: number;       // controller promises Python is currently waiting for
+  lastSusp: any;          // most recent Skulpt suspension (for variables)
 }
 
 export function createPythonRunner(opts: RunnerOptions): PythonRunner {
   const ctl: RobotController = opts.controller;
   let current: Ctx | null = null;
 
-  function run(source: string): Promise<RunResult> {
+  function run(source: string, runOpts: RunOptions = {}): Promise<RunResult> {
     if (current) stopCtx(current);
     return new Promise<RunResult>((resolve) => {
       const ctx: Ctx = {
         stopped: false, settled: false, curLine: 0, steps: 0, startCalled: false,
         logCount: 0, logCapped: false, lastStepText: null, outBuf: "",
         emitted: 0, pendingLine: 0, sliceEmits: 0, lastYield: Date.now(),
+        pauseReq: !!runOpts.startPaused, paused: false, haltNext: false, stepping: null, waiters: [], awaiting: 0, lastSusp: null,
         finish: (r) => {
           if (ctx.settled) return;
           ctx.settled = true;
+          ctx.paused = false; ctx.waiters = [];
           if (current === ctx) current = null;
           resolve(r);
         },
@@ -110,6 +129,7 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
   function stopCtx(ctx: Ctx) {
     if (ctx.stopped) return;
     ctx.stopped = true;
+    ctx.paused = false; ctx.waiters = [];
     try { ctl.stop(); } catch { /* ignore */ }
     flushOutput(ctx);
     ctx.finish({ status: "stopped" });
@@ -166,6 +186,44 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
   }
   function flushOutput(ctx: Ctx) {
     if (ctx.outBuf !== "") { const t = ctx.outBuf; ctx.outBuf = ""; if (!ctx.stopped) log(ctx, t, "print"); }
+  }
+
+  // ---------------------------------------------------------------- debugger
+
+  /** Should the breakpoint at this line halt? (called before every statement / loop iteration) */
+  function wantsHalt(ctx: Ctx, filename: string, lineno: number): boolean {
+    if (ctx.stopped || filename !== MAIN_FILE) return false;
+    if (ctx.pauseReq) return true;
+    const st = ctx.stepping;
+    if (st) {
+      // "Step" = run to the next line. A loop that sits on one line still stops once per pass.
+      if (lineno !== st.from || ++st.same >= 2) return true;
+    }
+    return false;
+  }
+
+  function enterPause(ctx: Ctx) {
+    if (ctx.stopped || ctx.paused) return;
+    ctx.paused = true;
+    ctx.pauseReq = false;
+    ctx.stepping = null;
+    flushOutput(ctx);
+    flushLine(ctx, true);
+    if (ctx.curLine && ctx.curLine !== ctx.emitted) { ctx.emitted = ctx.curLine; opts.onLine(ctx.curLine); }
+    try { opts.onPause?.({ line: ctx.curLine, vars: collectVars(ctx.lastSusp) }); } catch (e) { console.error(e); }
+  }
+
+  /** Run `fn` now, or when the program is resumed if it is paused. */
+  function whenRunning(ctx: Ctx, fn: () => void) {
+    if (ctx.stopped) return;
+    if (ctx.paused) ctx.waiters.push(fn); else fn();
+  }
+
+  function release(ctx: Ctx) {
+    ctx.paused = false;
+    const w = ctx.waiters;
+    ctx.waiters = [];
+    for (const fn of w) { if (ctx.stopped) return; fn(); }
   }
 
   // ---------------------------------------------------------------- errors
@@ -278,13 +336,15 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
 
     /** Await a controller promise without letting a stopped run resume. STOPPED -> stopped result. */
     function guard<T>(p: Promise<T>): Promise<T> {
+      ctx.awaiting++;
       return new Promise<T>((res, rej) => {
         p.then(
-          (v) => { if (!ctx.stopped) { ctx.lastYield = Date.now(); res(v); } },
+          (v) => { ctx.awaiting--; whenRunning(ctx, () => { ctx.lastYield = Date.now(); res(v); }); },
           (e) => {
+            ctx.awaiting--;
             if (ctx.stopped) return;
             if (isStopErr(e)) { stopCtx(ctx); return; }
-            rej(e);
+            whenRunning(ctx, () => rej(e));
           },
         );
       });
@@ -571,6 +631,7 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
       debugging: true,
       breakpoints: (filename: string, lineno: number) => {
         onBreakpoint(ctx, filename, lineno);
+        if (wantsHalt(ctx, filename, lineno)) { ctx.haltNext = true; return true; }
         return !ctx.stopped && Date.now() - ctx.lastYield > YIELD_MS;
       },
       inputfun: () => oops("RuntimeError", "input() can't be used in Robot Lab. Put the value straight into your program instead, like speed = 50."),
@@ -581,7 +642,19 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
       "*": (r: any) => {
         if (ctx.stopped) return NEVER;
         flushLine(ctx, true);
+        ctx.lastSusp = r;
         const type = r && r.data && r.data.type;
+        if ((type === "Sk.debug" || type === "Sk.delay") && ctx.haltNext) {
+          // debugger: halt here until resume() / step(); never settles after stop().
+          ctx.haltNext = false;
+          enterPause(ctx);
+          return new Promise((res, rej) => {
+            whenRunning(ctx, () => {
+              ctx.lastYield = Date.now();
+              try { res(r.resume()); } catch (e) { rej(e); }
+            });
+          });
+        }
         if (type === "Sk.debug" || type === "Sk.delay" || type === "Sk.yield") {
           // Give the browser (and the app's sim loop) a turn, then carry on.
           return new Promise((res, rej) => {
@@ -617,5 +690,33 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
     run,
     stop() { if (current) stopCtx(current); },
     get running() { return current !== null; },
+    // ---- debugger
+    pause() {
+      const ctx = current;
+      if (!ctx || ctx.stopped || ctx.paused) return;
+      ctx.stepping = null;
+      ctx.pauseReq = true;
+      // Waiting for a motion / wait(): halt right now (the app freezes the sim while paused).
+      if (ctx.awaiting > 0) enterPause(ctx);
+    },
+    resume() {
+      const ctx = current;
+      if (!ctx || ctx.stopped) return;
+      ctx.pauseReq = false; ctx.stepping = null; ctx.haltNext = false;
+      if (ctx.paused) release(ctx);
+    },
+    step() {
+      const ctx = current;
+      if (!ctx || ctx.stopped) return;
+      if (!ctx.paused) { if (!ctx.pauseReq) { ctx.stepping = null; ctx.pauseReq = true; if (ctx.awaiting > 0) enterPause(ctx); } return; }
+      ctx.pauseReq = false;
+      ctx.stepping = { from: ctx.curLine, same: 0 };
+      release(ctx);
+    },
+    get paused() { return !!current && current.paused; },
+    variables(): VarView[] {
+      const ctx = current;
+      return ctx ? collectVars(ctx.lastSusp) : [];
+    },
   };
 }

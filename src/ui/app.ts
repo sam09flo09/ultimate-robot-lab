@@ -28,6 +28,8 @@ import { BUILT_INS, getBuiltIn } from "../activities/builtins";
 import { loadImported, saveImported, removeImported, loadCurrentId, clearProgress, loadProgress } from "../activities/progress";
 import { ACTIVITY_EXT } from "./files";
 import { createViewSwitcher } from "./view3d";
+import type { VarView } from "../core/modules"; // debugger
+import { renderVariables } from "../debug/panel"; // debugger
 
 type Mode = "blocks" | "python";
 type MsgKind = "ok" | "info" | "err";
@@ -54,6 +56,8 @@ export function startApp(): void {
   const goalsBox = $("goalsBox");
   const runBtn = $("runBtn") as HTMLButtonElement;
   const stopBtn = $("stopBtn") as HTMLButtonElement;
+  const pauseBtn = $("pauseBtn") as HTMLButtonElement; // debugger
+  const stepBtn = $("stepBtn") as HTMLButtonElement;   // debugger
   const resetBtn = $("resetBtn") as HTMLButtonElement;
   const projName = $("projName") as HTMLInputElement;
   const worldBtn = $("worldBtn") as HTMLButtonElement;
@@ -98,6 +102,9 @@ export function startApp(): void {
   let fileHandle: FileHandle = null;
   let levelHandle: FileHandle = null;
   let pendingLine = 0, shownLine = -1;
+  // debugger: paused-line highlight + Variables panel
+  let shownPaused = false, debugUIKey = "";
+  let pendingVars: VarView[] | null = null, lastVars: VarView[] | null = null, varsTimer = 0;
   let pendingLogs: { line: number; text: string; kind: string }[] = [];
   let pendingScreen: string[] | null = null;
   const screenLines: string[] = [""];
@@ -126,7 +133,7 @@ export function startApp(): void {
   }, 800);
 
   const pyEditor: PythonEditor = createPythonEditor($("pyHost"), {
-    doc: starterFor(world), label: "Python code",
+    doc: starterFor(world), label: "Python code", assist: true, // debugger: autocomplete + hover help
     onChange: () => { if (!running) pyEditor.mark(0, "run"); scheduleAutosave(); activity?.onCodeChange(); },
     onRun: () => void run(),
   });
@@ -167,6 +174,7 @@ export function startApp(): void {
         while (screenLines.length > MAX_SCREEN_LINES) screenLines.shift();
         pendingScreen = screenLines;
       },
+      onPause: (info) => { pendingLine = info.line; pendingVars = info.vars; }, // debugger
     });
     unsubSim = sim.onEvent(onSimEvent);
     celebrated = false;
@@ -210,7 +218,7 @@ export function startApp(): void {
     last = now;
     // The 3D camera can move on its own (follow mode, dragging), so 3D redraws every frame.
     if (view.is3D) needDraw = true;
-    if (running) {
+    if (running && !runner.paused) { // debugger: the sim is frozen while the program is paused
       if (document.hidden) {
         // rAF is paused: we are on the timer fallback (which Chrome throttles). Catch up in ≤0.1 s chunks.
         realDt = Math.min(realDt, 2);
@@ -229,6 +237,9 @@ export function startApp(): void {
     statusTimer += realDt; goalsTimer += realDt;
     if (!running || statusTimer > 0.1) { if (running || statusDirty) { updateStatus(); statusDirty = false; } statusTimer = 0; }
     if (goalsTimer > 0.25) { goalsTimer = 0; if (running) renderGoals(); }
+    // debugger: live variables ~4×/s while running (only when the tab is showing)
+    varsTimer += frameDt;
+    if (running && !runner.paused && varsTimer > 0.25 && !$("panelVars").hidden) { varsTimer = 0; pendingVars = safe(() => runner.variables()) ?? null; }
     schedule();
   }
   let statusDirty = true;
@@ -242,11 +253,15 @@ export function startApp(): void {
 
   // ------------------------------------------------------------ output (log / screen / highlight)
   function flushOutput(): void {
-    if (pendingLine !== shownLine && running) {
-      shownLine = pendingLine;
-      if (mode === "python") pyEditor.mark(shownLine, "run");
-      else { safe(() => blocks.highlightLine(shownLine)); genEditor?.mark(shownLine, "run"); }
+    const isPaused = running && runner.paused; // debugger: paused line gets its own colour
+    if ((pendingLine !== shownLine || isPaused !== shownPaused) && running) {
+      shownLine = pendingLine; shownPaused = isPaused;
+      const kind = isPaused ? "paused" : "run";
+      if (mode === "python") pyEditor.mark(shownLine, kind);
+      else { safe(() => blocks.highlightLine(shownLine)); genEditor?.mark(shownLine, kind); }
     }
+    syncDebugUI();
+    if (pendingVars) { lastVars = pendingVars; renderVariables($("varsBox"), pendingVars, { running, paused: isPaused }); pendingVars = null; }
     if (pendingLogs.length) {
       const empty = logEl.querySelector(".empty");
       empty?.remove();
@@ -272,6 +287,7 @@ export function startApp(): void {
     }
   }
   function clearOutput(): void {
+    lastVars = null; renderVariables($("varsBox"), null, { running: false, paused: false }); // debugger
     logEl.innerHTML = "";
     logEl.append(h("li", { class: "empty" }, "Press Run. Each statement that runs is listed here, in order."));
     pendingLogs = [];
@@ -282,7 +298,7 @@ export function startApp(): void {
   }
   function clearHighlights(): void {
     pyEditor.mark(0, "run"); genEditor?.mark(0, "run"); safe(() => blocks.highlightLine(0));
-    shownLine = -1; pendingLine = 0;
+    shownLine = -1; pendingLine = 0; shownPaused = false;
   }
 
   // ------------------------------------------------------------ messages
@@ -363,7 +379,7 @@ export function startApp(): void {
   $("celClose").addEventListener("click", () => { $("celebrate").hidden = true; });
 
   // ------------------------------------------------------------ tabs
-  const tabIds = ["tabLog", "tabScreen", "tabGoals"];
+  const tabIds = ["tabLog", "tabScreen", "tabGoals", "tabVars"]; // debugger: + Variables
   function selectTab(id: string, focus = false): void {
     for (const t of tabIds) {
       const b = $(t), on = t === id;
@@ -373,6 +389,7 @@ export function startApp(): void {
       if (on) { b.querySelector(".dot")?.setAttribute("hidden", ""); if (focus) b.focus(); }
     }
     if (id === "tabGoals") { lastGoalsKey = ""; renderGoals(); }
+    if (id === "tabVars" && running) pendingVars = safe(() => runner.variables()) ?? null; // debugger
   }
   function markTabDot(id: string): void {
     const b = $(id);
@@ -394,6 +411,7 @@ export function startApp(): void {
     running = on;
     app.classList.toggle("is-running", on);
     runBtn.disabled = on; stopBtn.disabled = !on; resetBtn.disabled = on;
+    debugUIKey = ""; syncDebugUI(); // debugger
     worldBtn.disabled = on; modeBlocksBtn.disabled = on || !!lockedMode; modePythonBtn.disabled = on || !!lockedMode;
     ($("actBtn") as HTMLButtonElement).disabled = on;
     for (const id of ["mNew", "mOpen", "mTeacher"]) ($(id) as HTMLButtonElement).disabled = on;
@@ -411,7 +429,7 @@ export function startApp(): void {
     redraw();
   }
 
-  async function run(): Promise<void> {
+  async function run(runOpts: { stepThrough?: boolean } = {}): Promise<void> {
     if (running || isDialogOpen() || isCatalogueOpen() || !$("teacher").hidden) return;
     if (typeof (window as unknown as { Sk?: unknown }).Sk === "undefined") {
       showMsg("err", "The Python engine did not load. Reload the page (it works offline once it has loaded one time).");
@@ -426,7 +444,7 @@ export function startApp(): void {
     runPrints.length = 0;
     let result: RunResult;
     try {
-      result = await runner.run(src);
+      result = await runner.run(src, { startPaused: !!runOpts.stepThrough }); // debugger: Step through
     } catch (e) {
       console.error(e);
       result = { status: "error", error: { line: 0, type: "InternalError", raw: String(e), html: "<b>Something went wrong inside Robot Lab.</b><br>Press Reset and try again." } };
@@ -494,6 +512,37 @@ export function startApp(): void {
 
   runBtn.addEventListener("click", () => void run());
   stopBtn.addEventListener("click", stop);
+
+  // ------------------------------------------------------------ debugger: pause / continue / step
+  /** Shows ▶ Run + ⤵ Step when idle, ⏸ Pause while running, ▶ Continue + ⤵ Step while paused. */
+  function syncDebugUI(): void {
+    const paused = running && runner.paused;
+    const key = `${running}|${paused}`;
+    if (key === debugUIKey) return;
+    debugUIKey = key;
+    app.classList.toggle("is-paused", paused);
+    runBtn.hidden = running;
+    pauseBtn.hidden = !running;
+    setText(pauseBtn, paused ? "▶ Continue" : "⏸ Pause");
+    pauseBtn.title = paused ? "Carry on running (F8)" : "Pause on the next line (F8)";
+    pauseBtn.classList.toggle("btn-run", paused);
+    stepBtn.hidden = running && !paused;
+    stepBtn.disabled = false;
+    stepBtn.title = running ? "Run the next line, then pause again (F10)" : "Step through: start paused on the first line, then press Step for each line (F10)";
+    if (!running) { shownPaused = false; if (lastVars) renderVariables($("varsBox"), lastVars, { running: false, paused: false }); }
+  }
+  function togglePause(): void {
+    if (!running) { void run(); return; }
+    if (runner.paused) runner.resume(); else runner.pause();
+    syncDebugUI();
+  }
+  function stepOnce(): void {
+    if (!running) { selectTab("tabVars"); void run({ stepThrough: true }); return; }
+    runner.step();
+    syncDebugUI();
+  }
+  pauseBtn.addEventListener("click", togglePause);
+  stepBtn.addEventListener("click", stepOnce);
   resetBtn.addEventListener("click", () => { resetRobot(); clearOutput(); clearMsg(); clearHighlights(); });
 
   speedBtns.forEach((b) => b.addEventListener("click", () => {
@@ -990,6 +1039,9 @@ export function startApp(): void {
     }
     else if (mod && (e.key === "s" || e.key === "S") && !inTeacher) { e.preventDefault(); void saveProject(e.shiftKey); }
     else if (mod && (e.key === "o" || e.key === "O") && !inTeacher) { e.preventDefault(); void openFile(); }
+    // debugger: F8 continue/pause, F10 step
+    else if (e.key === "F8" && !inTeacher) { e.preventDefault(); togglePause(); }
+    else if (e.key === "F10" && !inTeacher) { e.preventDefault(); stepOnce(); }
   });
   window.addEventListener("pagehide", () => scheduleAutosave.flush());
   document.addEventListener("visibilitychange", () => { if (document.hidden) scheduleAutosave.flush(); else redraw(); });
@@ -1022,6 +1074,9 @@ export function startApp(): void {
     load: (text: string) => { const o = parseFileText(text, knownWorld); if (o.kind === "project") loadProject(o.project); return o.kind; },
     state: () => ({ running, mode, worldId, robot: { ...sim.state.robot }, msg: msgEl.textContent, log: Array.from(logEl.children).map((l) => l.textContent) }),
     speed: (v: number) => { speed = v; },
+    // debugger
+    pause: () => runner.pause(), resume: () => runner.resume(), step: stepOnce, paused: () => running && runner.paused,
+    variables: () => safe(() => runner.variables()) ?? [],
     // activities
     startActivity: (id: string) => { const a = findActivity(id); if (a) startActivity(a); return !!a; },
     activityState: () => activity?.state() ?? null,

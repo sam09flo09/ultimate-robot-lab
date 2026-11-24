@@ -101,6 +101,9 @@
       <section class="col col-field" aria-label="Playground">
         <div class="controls">
           <button id="runBtn" class="btn btn-run" title="Run your program (Ctrl+Enter)">▶ Run</button>
+          <!-- debugger: Pause / Continue and Step (Step through when idle) -->
+          <button id="pauseBtn" class="btn btn-pause" hidden title="Pause on the next line (F8)">⏸ Pause</button>
+          <button id="stepBtn" class="btn btn-step" title="Step through: start paused on the first line, then press Step for each line (F10)">⤵ Step</button>
           <button id="stopBtn" class="btn btn-stop" disabled title="Stop the program (Esc)">■ Stop</button>
           <button id="resetBtn" class="btn" title="Put the robot back at the start">↺ Reset</button>
           <div class="seg seg-speed" role="radiogroup" aria-label="Speed">
@@ -154,6 +157,7 @@
           <button role="tab" id="tabLog" aria-selected="true" aria-controls="panelLog">Steps</button>
           <button role="tab" id="tabScreen" aria-selected="false" aria-controls="panelScreen" tabindex="-1">Screen<i class="dot" hidden></i></button>
           <button role="tab" id="tabGoals" aria-selected="false" aria-controls="panelGoals" tabindex="-1">Challenge<i class="dot" hidden></i></button>
+          <!-- debugger --><button role="tab" id="tabVars" aria-selected="false" aria-controls="panelVars" tabindex="-1">Variables</button>
         </div>
         <div class="tab-panels">
           <div role="tabpanel" id="panelLog" aria-labelledby="tabLog" class="panel">
@@ -164,6 +168,10 @@
           </div>
           <div role="tabpanel" id="panelGoals" aria-labelledby="tabGoals" class="panel" hidden>
             <div id="goalsBox" class="goals"></div>
+          </div>
+          <!-- debugger: Variables panel (src/debug/panel.ts) -->
+          <div role="tabpanel" id="panelVars" aria-labelledby="tabVars" class="panel" hidden>
+            <div id="varsBox" class="vars" aria-live="off"></div>
           </div>
         </div>
       </aside>

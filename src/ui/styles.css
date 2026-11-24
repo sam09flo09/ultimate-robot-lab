@@ -336,3 +336,19 @@ kbd { font-size: 11px; color: var(--gray); margin-left: auto; padding-left: 16px
 .camera-box select { font: 600 14px var(--body); min-height: 36px; padding: 4px 8px; border: 1px solid var(--sand); border-radius: 8px; background: #fff; color: var(--ink); }
 .fieldbox canvas#field3d { cursor: grab; }
 .fieldbox canvas#field3d:active { cursor: grabbing; }
+
+/* ---- debugger: pause / step buttons, paused highlight, Variables panel ---- */
+.btn-pause { min-width: 92px; }
+.btn-step { white-space: nowrap; }
+.app.is-paused .rl-blocks .blocklyHighlighted>.blocklyPath { stroke: #1F4FA8 !important; filter: drop-shadow(0 0 6px rgba(31,79,168,.8)) !important; }
+.vars { padding: 4px 2px; font-size: 13px; }
+.vars .empty { color: var(--gray); font-size: 13.5px; padding: 8px 4px; margin: 0; }
+.vars-note { margin: 2px 4px 6px; color: #1F4FA8; font-weight: 600; font-size: 12.5px; }
+.vars-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; table-layout: fixed; }
+.vars-table caption { text-align: left; font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .04em; color: var(--gray); padding: 4px 4px 2px; }
+.vars-table th, .vars-table td { padding: 4px 4px; border-bottom: 1px solid #F1EBE0; vertical-align: top; text-align: left; }
+.vars-table .vn { width: 32%; font: 600 12.5px var(--mono); overflow-wrap: anywhere; }
+.vars-table .vv { font: 12.5px var(--mono); overflow-wrap: anywhere; }
+.vars-table .vt { width: 44px; color: var(--gray); font-size: 11px; text-align: right; }
+:root[data-contrast="high"] .vars-table th, :root[data-contrast="high"] .vars-table td { border-bottom-color: #9A9A9A; }
+.vars-note.vars-done { color: var(--gray); font-weight: 500; }
