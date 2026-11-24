@@ -10,11 +10,13 @@ import { ringSweep } from "./ringSweep";
 import { ovalSpeedway } from "./ovalSpeedway";
 import { zigzagGates } from "./zigzagGates";
 import { tapeDash } from "./tapeDash";
+import { gearLab } from "./gearLab"; // builder: speed vs torque
 
 /** In menu order. The first one is the default playground. Treat these as read-only (deep-copy before editing). */
-export const PLAYGROUNDS: World[] = [numberGrid, corridorQuest, tapeTrail, colorDepot, sketchPad, ringSweep, ovalSpeedway, zigzagGates, tapeDash];
+export const PLAYGROUNDS: World[] = [numberGrid, corridorQuest, tapeTrail, colorDepot, sketchPad, ringSweep, ovalSpeedway, zigzagGates, tapeDash, gearLab];
 
-/** The race (time-trial) playgrounds, also listed in PLAYGROUNDS. */
+/** The race (time-trial) playgrounds, also listed in PLAYGROUNDS. (Gear Lab also has a race clock, but is the
+ *  Robot Builder's lab rather than a time trial, so it isn't listed here.) */
 export const RACE_PLAYGROUNDS: World[] = [ovalSpeedway, zigzagGates, tapeDash];
 
 export function getPlayground(id: string): World | undefined {

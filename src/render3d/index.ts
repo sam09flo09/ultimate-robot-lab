@@ -848,6 +848,7 @@ export function createRenderer3D(canvas: HTMLCanvasElement, opts: Renderer3DOpti
     g.rotation.set(0, headingToRotationY(pose.heading), 0);
     g.scale.setScalar(robotScale);
     if (state) odo.update(pose.x, pose.y, pose.heading); else odo.reset();
+    robot.setDesign(state?.config, !!state?.stalled); // builder
     robot.setWheelAngles(odo.left, odo.right);
     robot.setBumper(!!(state && state.bumperPressed));
     robot.setPen(!!(hw && hw.pen), !!(state && state.penDown), state ? state.penColor : "BLACK");

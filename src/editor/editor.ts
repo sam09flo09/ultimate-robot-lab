@@ -961,6 +961,11 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
         })), check("Pickable (magnet can lift it)", o.pickable, (v) => mutate((w) => {
           const q = findItem(w, selectedId); if (!q) return; const ob = w.objects[q.index]; ob.pickable = v; if (v) ob.movable = true;
         })));
+        // builder: how heavy it is to push (1 = the standard robot can just push it)
+        if (o.movable) P.append(field("Mass (× normal)", numInput(o.mass ?? 1, onItem((w, q, v) => {
+          const ob = w.objects[q.index]; const m = Math.round(v * 100) / 100; if (m === 1) delete ob.mass; else ob.mass = m;
+        }), { step: 0.5, min: 0.5, max: 4 })),
+        h("p", { class: "le-empty", text: "Mass 1 = the standard robot can push it. Heavier needs more motors or a bigger gear ratio (Robot Builder)." }));
         if (o.shape === "box") { addBtn("↺ −15°", () => rotateSelected(-15)); addBtn("↻ +15°", () => rotateSelected(15)); }
         break;
       }
@@ -1017,6 +1022,7 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
       check("Pen (draws on the floor)", !!world.hardware?.pen, (v) => mutate((w) => { w.hardware = { ...w.hardware, pen: v }; })),
       check("Magnet (picks up objects)", !!world.hardware?.magnet, (v) => mutate((w) => { w.hardware = { ...w.hardware, magnet: v }; })));
     renderRaceSettings(P); // race
+    renderRobotRules(P); // builder
     P.append(h("h3", { text: "Starter Python" }));
     const code = textInput(world.starter?.python ?? "", LIMITS.python, (w, v) => { w.starter = { ...w.starter, python: v }; }, true, "le-code");
     code.addEventListener("keydown", (e) => {
@@ -1062,6 +1068,24 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
       h("p", { class: "le-empty", text: "Par: gold ≤ par, silver ≤ 1.25 × par, bronze slower (0 = no medals). " +
         "Checkpoints: add a \"Visit zones in order\" goal — each lap must pass them in that order before crossing the finish. " +
         "With laps, the robot must start outside the finish zone." }));
+  }
+
+  // builder: limits on the student's Robot Builder design in this level
+  function renderRobotRules(P: HTMLElement) {
+    const rr = world.robotRules ?? {};
+    P.append(h("h3", { text: "Robot rules" }),
+      check("Lock the robot (everyone uses the standard robot — fair races)", !!rr.locked, (v) => mutate((w) => {
+        const n = { ...(w.robotRules ?? {}) };
+        if (v) n.locked = true; else delete n.locked;
+        if (n.locked || n.maxSize !== undefined || n.config) w.robotRules = n; else delete w.robotRules;
+      })),
+      field("Max robot size (mm)", numInput(rr.maxSize ?? 200, (w, v) => {
+        const n = { ...(w.robotRules ?? {}) };
+        const m = Math.round(Math.min(200, Math.max(120, v)));
+        if (m >= 200) delete n.maxSize; else n.maxSize = m;
+        if (n.locked || n.maxSize !== undefined || n.config) w.robotRules = n; else delete w.robotRules;
+      }, { step: 10, min: 120, max: 200 })),
+      h("p", { class: "le-empty", text: "Students design their robot with 🔧 Robot. Max size 200 = no limit; a smaller size stops big robots (use it with narrow gaps)." }));
   }
 
   function zonePicker(value: string, set: (v: string) => void): HTMLSelectElement {

@@ -2,15 +2,16 @@
  * Robot Lab simulation engine. Public entry: createSim(world).
  * See src/core/types.ts for the Sim / RobotController contract.
  */
-import type { Sim, World } from "../core/types";
+import type { RobotConfig, Sim, World } from "../core/types";
 import { Engine } from "./engine";
 import { createController } from "./controller";
 
 export { SUBSTEP, ROBOT_SIZE } from "./engine";
 export { BRIGHTNESS } from "./sensors";
+export * from "./robotConfig"; // builder
 
-export function createSim(world: World): Sim {
-  const engine = new Engine(world);
+export function createSim(world: World, config?: Partial<RobotConfig> | null): Sim {
+  const engine = new Engine(world, config); // builder: robot design
   const controller = createController(engine);
   return {
     world,
@@ -21,6 +22,6 @@ export function createSim(world: World): Sim {
     abort: () => engine.abort(),
     evaluateGoals: () => engine.evaluateGoals(),
     onEvent: (cb) => engine.onEvent(cb),
-    setConfig: () => engine.reset(), // PLACEHOLDER: the builder agent implements robot designs
+    setConfig: (config) => engine.applyConfig(config), // builder: clamps, applies world.robotRules, resets
   };
 }

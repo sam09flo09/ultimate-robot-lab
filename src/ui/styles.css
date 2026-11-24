@@ -444,3 +444,8 @@ kbd { font-size: 11px; color: var(--gray); margin-left: auto; padding-left: 16px
 .ctl-keys td:first-child { white-space: normal; }
 .ctl-keys kbd, .help-body .ctl-keys kbd { font-size: 12px; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .ctl-stick i { transition: none; } }
+
+/* builder: the Robot button shows an orange dot when a custom robot design is in use */
+#robotBtn.is-custom { position: relative; border-color: var(--orange); }
+#robotBtn.is-custom::after { content: ""; position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--orange); }
+.race-hist-robot { font-size: 12px; } /* builder */

@@ -15,9 +15,10 @@
  *
  * The canvas must be sized by CSS (e.g. width/height 100%); call resize() whenever that size changes.
  */
-import type { ColorName, FloorShape, SimState, Wall, World, WorldObject, Zone } from "../core/types";
+import type { ColorName, FloorShape, RobotConfig, SimState, Wall, World, WorldObject, Zone } from "../core/types";
 import { COLOR_HEX } from "../core/types";
 import type { RenderOptions, Renderer } from "../core/modules";
+import { drawRobotParts, wheelLength } from "./robotParts"; // builder
 import { computeLayout, layoutToCanvas, layoutToWorld, type Layout, type View } from "./view";
 
 const INK = "#0C0B0A";
@@ -341,8 +342,10 @@ export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
     x: number, y: number, heading: number, size: number,
     hw: { pen?: boolean; magnet?: boolean },
     penDown: boolean, penColor: ColorName, bumper: boolean, carrying: boolean, px: number,
+    cfg?: RobotConfig, stalled = false, // builder
   ) {
     const h = size / 2;
+    const wl = wheelLength(size, cfg) / 2; // builder: wheel size (default = 0.32 × size)
     c.save();
     c.translate(x, -y);
     c.rotate(heading * DEG);
@@ -352,13 +355,13 @@ export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
     c.fill();
     // wheels (as the original), with tread marks
     c.fillStyle = "#3A3631";
-    c.fillRect(-h - size * 0.08, -size * 0.32, size * 0.12, size * 0.64);
-    c.fillRect(h - size * 0.04, -size * 0.32, size * 0.12, size * 0.64);
+    c.fillRect(-h - size * 0.08, -wl, size * 0.12, wl * 2);
+    c.fillRect(h - size * 0.04, -wl, size * 0.12, wl * 2);
     c.strokeStyle = "#5A534B";
     c.lineWidth = Math.max(px, size * 0.015);
     c.beginPath();
     for (let i = -3; i <= 3; i++) {
-      const ty = i * size * 0.09;
+      const ty = i * wl * 0.28; // builder: = size × 0.09 for the default wheel
       c.moveTo(-h - size * 0.08, ty); c.lineTo(-h + size * 0.04, ty);
       c.moveTo(h - size * 0.04, ty); c.lineTo(h + size * 0.08, ty);
     }
@@ -370,6 +373,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
     c.fillStyle = "#1F1C19";
     roundRect(c, -h + size * 0.1, -h + size * 0.1, size * 0.8, size * 0.8, size * 0.12);
     c.fill();
+    drawRobotParts(c, size, cfg, stalled, px); // builder
     // bumper bar on the front edge
     const bw = size * 0.72;
     const bh = size * 0.07;
@@ -596,6 +600,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
       c, robot.x, robot.y, robot.heading, size, hw,
       state ? state.penDown : false, state ? state.penColor : "BLACK",
       state ? state.bumperPressed : false, carried !== null, px,
+      state?.config, !!state?.stalled, // builder
     );
     if (carried) drawCarried(c, carried, robot.x, robot.y, robot.heading, size, px);
 

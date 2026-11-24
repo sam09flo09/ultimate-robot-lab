@@ -115,6 +115,19 @@ start(main)</pre>
   ${keyTableHtml()}
 </section>
 
+<!-- builder -->
+<section>
+  <h3>Robot Builder <span class="muted">(🔧 Robot)</span></h3>
+  <p>Design your robot, then press <b>Apply</b>. Your design is saved in your project.</p>
+  <ul>
+    <li><b>Gear ratio</b>: 3:1 = slow but 3× stronger (low gear on a bike); 1:3 = 3× faster but weaker.</li>
+    <li><b>Bigger wheels</b> = faster but weaker. <b>4 motors</b> = twice the push, same speed.</li>
+    <li><b>Bigger robot</b> = turns slower and needs wider gaps (size + 10 mm).</li>
+    <li>An object heavier than your <b>push strength</b> makes the wheels spin: <code>drive_for</code> stops early and the bumper is pressed.</li>
+    <li><code>drive_for</code> distances and <code>turn_for</code> angles stay exact — only how long they take changes.</li>
+  </ul>
+</section>
+
 <section>
   <h3>Keyboard shortcuts</h3>
   ${table([

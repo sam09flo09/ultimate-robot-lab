@@ -6,7 +6,8 @@
  * and anything unusable is replaced by a safe default (with a warning) rather than crashing.
  * Pure functions, no DOM.
  */
-import type { ColorName, FloorShape, Goal, Pose, Vec, Wall, World, WorldObject, Zone } from "../core/types";
+import type { ColorName, FloorShape, Goal, Pose, RobotConfig, Vec, Wall, World, WorldObject, Zone } from "../core/types";
+import { clampConfig } from "../sim/robotConfig"; // builder
 import type { LevelFile } from "../core/modules";
 import { COLOR_HEX } from "../core/types";
 import { ID_PREFIX, ID_RE, nextId } from "./ids";
@@ -191,6 +192,8 @@ export function sanitizeWorld(raw: unknown): { world: World; warnings: string[] 
       pickable,
     };
     if (shape === "box") obj.rotation = normDeg(num(o.rotation) ?? 0);
+    const mass = num(o.mass); // builder: how hard it is to push (default 1)
+    if (mass !== null && mass !== 1) obj.mass = Math.round(Math.min(4, Math.max(0.5, mass)) * 100) / 100;
     objects.push(obj);
   }
 
@@ -313,6 +316,16 @@ export function sanitizeWorld(raw: unknown): { world: World; warnings: string[] 
     version: 1,
   };
   if (race) world.race = race; // race
+  // builder: robot rules (lock the design, cap the size)
+  if (isObj(src.robotRules)) {
+    const rr = src.robotRules;
+    const rules: NonNullable<World["robotRules"]> = {};
+    if (rr.locked === true) rules.locked = true;
+    const max = num(rr.maxSize);
+    if (max !== null && max < 200) rules.maxSize = Math.round(Math.max(120, max));
+    if (isObj(rr.config)) rules.config = clampConfig(rr.config as Partial<RobotConfig>);
+    if (rules.locked || rules.maxSize !== undefined || rules.config) world.robotRules = rules;
+  }
   return { world, warnings };
 }
 

@@ -161,6 +161,8 @@ export interface SimState {
   visitedZones: string[];        // zone ids in first-entry order
   /** builder: the robot design in use (DEFAULT_ROBOT if none). robotSize === config.size. */
   config?: RobotConfig;
+  /** builder: true while the wheels spin against an object too heavy for this robot to push. */
+  stalled?: boolean;
   /** arm: present only when the world fits an arm. */
   arm?: ArmState;
 }

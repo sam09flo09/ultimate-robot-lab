@@ -3,13 +3,14 @@
  * missing, full, blocked or hold junk (it is per-browser and students can edit it).
  * Built-in worlds are keyed by id; custom worlds by a stable hash of the course.
  */
-import type { World } from "../core/types";
+import type { RobotConfig, World } from "../core/types";
+import { configKey, isDefaultConfig } from "../sim/robotConfig"; // builder
 
 export const RACE_STORE_KEY = "robot-lab-race-v1";
 export const HISTORY_LEN = 5;
 const MAX_WORLDS = 200;
 
-export interface RunEntry { t: number; at: number }        // time (sim s), date (ms since epoch)
+export interface RunEntry { t: number; at: number; robot?: string } // time (sim s), date (ms since epoch), builder: robot design summary
 export interface RaceRecord { best: number | null; runs: RunEntry[] }
 type Store = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 type Db = Record<string, RaceRecord & { touched: number }>;
@@ -50,8 +51,10 @@ export function hashWorld(w: World): string {
 }
 
 /** Storage key for a world: built-ins by id, custom worlds (id "custom") by course hash. */
-export function raceKey(world: World, worldId: string): string {
-  return worldId === "custom" || !worldId ? "c:" + hashWorld(world) : "w:" + worldId;
+export function raceKey(world: World, worldId: string, robot?: RobotConfig): string {
+  const base = worldId === "custom" || !worldId ? "c:" + hashWorld(world) : "w:" + worldId;
+  // builder: a non-default robot design keeps its own best time (the default keeps the old key)
+  return robot && !isDefaultConfig(robot) ? base + "|" + configKey(robot) : base;
 }
 
 function goodTime(v: unknown): v is number {
@@ -69,7 +72,7 @@ function readDb(store: Store | null): Db {
       const r = v as Record<string, unknown>;
       const runs = Array.isArray(r.runs)
         ? r.runs.filter((e): e is RunEntry => !!e && goodTime((e as RunEntry).t) && typeof (e as RunEntry).at === "number").slice(-HISTORY_LEN)
-          .map((e) => ({ t: e.t, at: e.at }))
+          .map((e) => (typeof e.robot === "string" ? { t: e.t, at: e.at, robot: e.robot.slice(0, 80) } : { t: e.t, at: e.at }))
         : [];
       out[k] = { best: goodTime(r.best) ? r.best : null, runs, touched: typeof r.touched === "number" ? r.touched : 0 };
     }
@@ -95,14 +98,14 @@ export function loadRecord(key: string, store: Store | null = defaultStore()): R
 export interface RecordResult { record: RaceRecord; newBest: boolean; previousBest: number | null; saved: boolean }
 
 /** Add a finished run. "New best" compares in centiseconds (what the clock shows). */
-export function recordRun(key: string, time: number, now = Date.now(), store: Store | null = defaultStore()): RecordResult {
+export function recordRun(key: string, time: number, now = Date.now(), store: Store | null = defaultStore(), robot?: string): RecordResult {
   const db = readDb(store);
   const cur = db[key] ?? { best: null, runs: [], touched: 0 };
   const previousBest = cur.best;
   const newBest = goodTime(time) && (previousBest === null || Math.round(time * 100) < Math.round(previousBest * 100));
   if (goodTime(time)) {
     if (newBest) cur.best = time;
-    cur.runs = cur.runs.concat({ t: time, at: now }).slice(-HISTORY_LEN);
+    cur.runs = cur.runs.concat(robot ? { t: time, at: now, robot } : { t: time, at: now }).slice(-HISTORY_LEN); // builder: robot
   }
   cur.touched = now;
   db[key] = cur;
