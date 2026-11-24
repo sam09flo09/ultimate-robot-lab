@@ -20,6 +20,10 @@ export interface FakeState {
   calls: string[];
   pen: boolean;
   magnet: boolean;
+  /** arm: the world fits an arm (default true) */
+  arm: boolean;
+  armAngle: number;
+  holding: boolean;
   bumperAfter: number;   // bumperPressed() returns true after this many reads
   bumperReads: number;
   color: ColorName;
@@ -32,7 +36,7 @@ export interface FakeState {
 
 export function fakeController(over: Partial<FakeState> = {}): { ctl: RobotController; st: FakeState } {
   const st: FakeState = {
-    calls: [], pen: true, magnet: true, bumperAfter: Infinity, bumperReads: 0, color: "RED",
+    calls: [], pen: true, magnet: true, arm: true, armAngle: 0, holding: false, bumperAfter: Infinity, bumperReads: 0, color: "RED",
     hold: false, pending: [], heading: 0, timer: 1.5, ...over,
   };
   const later = (name: string): Promise<void> => {
@@ -73,14 +77,13 @@ export function fakeController(over: Partial<FakeState> = {}): { ctl: RobotContr
     setPenColor: (c) => { rec(`setPenColor(${c})`); return st.pen; },
     magnet: (on) => { rec(`magnet(${on})`); return st.magnet; },
     setWheelVelocities: (l, r) => { rec(`wheels(${l},${r})`); },
-    armAvailable: () => false,
-    armSpinTo: () => Promise.resolve(),
-    armSpin: () => undefined,
-    setArmVelocity: () => undefined,
-    armAngle: () => 0,
-    claw: () => Promise.resolve(),
-    clawHolding: () => false,
-
+    armAvailable: () => st.arm,
+    armSpinTo: (deg) => { st.armAngle = deg; return later(`armSpinTo(${deg})`); },
+    armSpin: (d) => rec(`armSpin(${d})`),
+    setArmVelocity: (p) => rec(`setArmVelocity(${p})`),
+    armAngle: () => st.armAngle,
+    claw: (closed) => { st.holding = closed; return later(`claw(${closed})`); },
+    clawHolding: () => st.holding,
   };
   return { ctl, st };
 }

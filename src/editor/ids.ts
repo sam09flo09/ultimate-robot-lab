@@ -4,7 +4,7 @@ import type { World } from "../core/types";
 /** Ids we accept from files: short, safe characters only. */
 export const ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
 
-export const ID_PREFIX = { wall: "wall", floor: "paint", object: "obj", zone: "zone" } as const;
+export const ID_PREFIX = { wall: "wall", floor: "paint", object: "obj", zone: "zone", platform: "platform" /* arm */ } as const;
 
 /** All ids currently used by walls, floor shapes, objects and zones. */
 export function collectIds(w: World): Set<string> {
@@ -13,6 +13,7 @@ export function collectIds(w: World): Set<string> {
   for (const it of w.floor) if (it.id) s.add(it.id);
   for (const it of w.objects) if (it.id) s.add(it.id);
   for (const it of w.zones) if (it.id) s.add(it.id);
+  for (const it of w.platforms ?? []) if (it.id) s.add(it.id); // arm
   return s;
 }
 
@@ -44,9 +45,11 @@ export function ensureIds(w: World): World {
   w.floor.forEach((it) => fix(it, ID_PREFIX.floor));
   w.objects.forEach((it) => fix(it, ID_PREFIX.object));
   w.zones.forEach((it) => fix(it, ID_PREFIX.zone));
+  (w.platforms ?? []).forEach((it) => fix(it, ID_PREFIX.platform)); // arm
   for (const it of w.walls) if (!it.id) it.id = nextId(used, ID_PREFIX.wall);
   for (const it of w.floor) if (!it.id) it.id = nextId(used, ID_PREFIX.floor);
   for (const it of w.objects) if (!it.id) it.id = nextId(used, ID_PREFIX.object);
   for (const it of w.zones) if (!it.id) it.id = nextId(used, ID_PREFIX.zone);
+  for (const it of w.platforms ?? []) if (!it.id) it.id = nextId(used, ID_PREFIX.platform); // arm
   return w;
 }

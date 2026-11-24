@@ -4,6 +4,7 @@
  * Teachers may also find these handy as answer keys.
  */
 import type { DriveScript } from "./runSolution";
+import { ARM_HELPER_LINES } from "./a13-arms-and-claws"; // arm
 
 const prog = (...lines: string[]) => lines.join("\n") + "\n";
 
@@ -53,6 +54,46 @@ const DEPOT = prog(
   "    deliver(300, 250, BLUE_BIN)",
   "    deliver(650, -200, RED_BIN)",
   "    deliver(700, -650, YELLOW_BIN)",
+  "",
+  "start(main)",
+);
+
+/* arm: Stack Shop. The claw holds a block 130 mm ahead of the robot's centre, so go_to(x, y, 130)
+ * puts what the claw holds right over (x, y). */
+const ARM_HELPERS = ARM_HELPER_LINES;
+export const STACK_SHOP_SHELF = prog(
+  ...ARM_HELPERS,
+  "def main():",
+  "    drivetrain.set_drive_velocity(80, PERCENT)",
+  "    pick_up(-550, -300)",
+  "    place(-550, 380, 30)    # low shelf: 100 mm, so lift above 20 degrees",
+  "",
+  "start(main)",
+);
+export const STACK_SHOP_STACK = prog(
+  ...ARM_HELPERS,
+  "def main():",
+  "    drivetrain.set_drive_velocity(80, PERCENT)",
+  "    pick_up(-250, -300)",
+  "    place(0, 300, 20)       # on the anchor block (50 mm)",
+  "    pick_up(250, -300)",
+  "    place(0, 300, 30)       # on top of the first red block (100 mm)",
+  "",
+  "start(main)",
+);
+export const STACK_SHOP_FULL = prog(
+  ...ARM_HELPERS,
+  "def main():",
+  "    drivetrain.set_drive_velocity(80, PERCENT)",
+  "    drivetrain.set_turn_velocity(80, PERCENT)",
+  "    pick_up(-250, -300)",
+  "    place(0, 300, 20)",
+  "    pick_up(250, -300)",
+  "    place(0, 300, 30)",
+  "    pick_up(-550, -300)",
+  "    place(-550, 380, 30)    # low shelf, 100 mm",
+  "    pick_up(550, -300)",
+  "    place(550, 380, 50)     # high shelf, 200 mm: lift above 42 degrees",
   "",
   "start(main)",
 );
@@ -416,6 +457,21 @@ export const SOLUTIONS: Record<string, Record<string, string>> = {
       "start(main)",
     ),
     "full-depot": DEPOT,
+  },
+  // arm
+  "a13-arms-and-claws": {
+    "work-envelope": prog(
+      "def main():",
+      "    arm.spin_to_position(30, DEGREES)",
+      "    print(\"Arm at\", arm.position(DEGREES))",
+      "    arm.spin_to_position(90, DEGREES)",
+      "    print(\"Arm at\", arm.position(DEGREES))",
+      "",
+      "start(main)",
+    ),
+    "pick-and-place": STACK_SHOP_SHELF,
+    "stack-three": STACK_SHOP_STACK,
+    "stack-shop": STACK_SHOP_FULL,
   },
   "a10-capstone-maze": {
     "plan-and-code": prog(

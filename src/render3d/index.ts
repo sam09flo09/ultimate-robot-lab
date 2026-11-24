@@ -29,6 +29,8 @@ import {
   fitSphereDistance, floorTextureLayout, growCapacity, headingToRotationY, orbitLimits, orbitPosition,
   pointsDelta, smoothing, writeRibbonSegment, type OrbitLimits, type OrbitState,
 } from "./math";
+import { Arm3D, Platforms3D } from "./arm"; // arm
+import { objectHeight } from "../sim/arm"; // arm
 import { CARRY_HEIGHT, EYE_HEIGHT, HALF_TRACK, ROBOT_NOMINAL, WHEEL_RADIUS, buildRobot, type RobotModel } from "./robot";
 
 const CREAM = 0xfdf9f2;
@@ -360,6 +362,8 @@ export function createRenderer3D(canvas: HTMLCanvasElement, opts: Renderer3DOpti
   let robot = kit.robot;
   scene.add(robot.group);
   const odo = new WheelOdometry(WHEEL_RADIUS, HALF_TRACK);
+  const arm3d = new Arm3D(scene);            // arm
+  const platforms3d = new Platforms3D(scene); // arm
   const blob = new Mesh(planeG, kit.blobMat);
   blob.renderOrder = 1;
   scene.add(blob);
@@ -415,6 +419,7 @@ export function createRenderer3D(canvas: HTMLCanvasElement, opts: Renderer3DOpti
     renderer.shadowMap.enabled = high;
     sun.castShadow = high;
     robot.setCastShadow(high);
+    arm3d.setCastShadow(high); // arm
     blob.visible = !high;
   }
 
@@ -526,6 +531,7 @@ export function createRenderer3D(canvas: HTMLCanvasElement, opts: Renderer3DOpti
     camera.updateProjectionMatrix();
     buildFloor(world, showZones);
     buildWalls(world);
+    platforms3d.build(world.platforms, quality === "high"); // arm
     setupLight();
     if (world !== cacheWorld) {
       clearObjects();
@@ -557,7 +563,7 @@ export function createRenderer3D(canvas: HTMLCanvasElement, opts: Renderer3DOpti
     let mesh: Mesh;
     let height: number;
     if (o.shape === "disk") {
-      height = Math.max(18, Math.min(60, o.size * 0.32));
+      height = objectHeight(o); // arm: same height the sim stacks with
       mesh = new Mesh(kit.unitDisk, mat);
       mesh.scale.set(o.size, height, o.size);
       if (o.pickable) {
@@ -567,9 +573,9 @@ export function createRenderer3D(canvas: HTMLCanvasElement, opts: Renderer3DOpti
         mesh.add(cap);
       }
     } else {
-      height = o.size;
+      height = objectHeight(o); // arm
       mesh = new Mesh(kit.unitBox, mat);
-      mesh.scale.set(o.size, o.size, o.size);
+      mesh.scale.set(o.size, height, o.size);
       if (o.pickable) {
         const cap = new Mesh(kit.unitBox, kit.steel);
         cap.scale.set(0.4, 0.03, 0.4);
@@ -589,7 +595,7 @@ export function createRenderer3D(canvas: HTMLCanvasElement, opts: Renderer3DOpti
     for (let i = 0; i < objects.length; i++) {
       const o = objects[i];
       let e = objs.get(o.id);
-      if (e && (e.shape !== o.shape || e.size !== o.size || e.color !== o.color || e.pickable !== o.pickable)) {
+      if (e && (e.shape !== o.shape || e.size !== o.size || e.color !== o.color || e.pickable !== o.pickable || e.height !== objectHeight(o) /* arm */)) {
         disposeObj(e);
         objs.delete(o.id);
         e = undefined;
@@ -605,7 +611,7 @@ export function createRenderer3D(canvas: HTMLCanvasElement, opts: Renderer3DOpti
         m.position.set(rx + Math.sin(h) * d, CARRY_HEIGHT * (rsize / ROBOT_NOMINAL), -(ry + Math.cos(h) * d));
         m.rotation.set(0, headingToRotationY(rh), 0);
       } else {
-        m.position.set(o.x, 0, -o.y);
+        m.position.set(o.x, o.z && o.z > 0 ? o.z : 0, -o.y); // arm: up on a platform / stack / in the claw
         m.rotation.set(0, o.shape === "box" && o.rotation ? -o.rotation * DEG : 0, 0);
       }
     }
@@ -853,6 +859,7 @@ export function createRenderer3D(canvas: HTMLCanvasElement, opts: Renderer3DOpti
     robot.setBumper(!!(state && state.bumperPressed));
     robot.setPen(!!(hw && hw.pen), !!(state && state.penDown), state ? state.penColor : "BLACK");
     robot.setMagnet(!!(hw && hw.magnet), !!(state && state.carrying !== null));
+    arm3d.update(!!(hw && hw.arm), pose.x, pose.y, pose.heading, size, state ? state.arm : undefined); // arm
     if (blob.visible) {
       blob.position.set(pose.x, 0.6, -pose.y);
       blob.scale.set(size * 1.6, 1, size * 1.6);
@@ -941,6 +948,7 @@ export function createRenderer3D(canvas: HTMLCanvasElement, opts: Renderer3DOpti
       canvas.style.touchAction = prevTouchAction;
       pointers.clear();
       clearObjects();
+      arm3d.dispose(); platforms3d.dispose(); // arm
       pathRibbon.dispose();
       penRibbon.dispose();
       rayGeom.dispose();

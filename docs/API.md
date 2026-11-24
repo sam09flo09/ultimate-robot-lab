@@ -52,6 +52,37 @@ RED GREEN BLUE YELLOW ORANGE PURPLE WHITE BLACK NONE · UP DOWN · BOOST DROP
 | `magnet.energize(BOOST)` | pick up the object directly in front (within 100 mm) |
 | `magnet.energize(DROP)` | drop it |
 
+## Arm and claw (only in worlds with `hardware.arm`, e.g. Stack Shop)
+A 1-DOF lifting arm with a claw on the end. The claw sits about 60 mm in front of the robot's front
+face (it grabs things up to 110 mm ahead, within 40 mm either side of centre). The arm angle goes from
+0° (down: claw at the floor) to 90° (straight up); the claw height is `300 × sin(angle)` mm. Without an
+arm every call below gives a friendly RuntimeError: "This playground has no arm…".
+
+```python
+def main():
+    claw.close()                              # grab the block in front
+    arm.spin_to_position(30, DEGREES)         # lift it 150 mm
+    drivetrain.drive_for(FORWARD, 400, MM)
+    arm.spin_to_position(0, DEGREES)          # lower until it sits on the platform
+    claw.open()                               # let go
+
+start(main)
+```
+
+| call | behaviour |
+|---|---|
+| `arm.spin_to_position(angle, DEGREES, wait=True)` | move to 0..90 (outside values are clamped, with a warning); waits until there. Stops early (and returns) if the claw — or what it holds — lands on something: a platform top or a stack |
+| `arm.spin(UP)` / `arm.spin(DOWN)` | keep moving until `arm.stop()` (stops by itself at 0 and 90, or when blocked) |
+| `arm.stop()` | stop the arm |
+| `arm.set_velocity(v, PERCENT)` | 1..100, default 50 = 60°/s (100% = 120°/s) |
+| `arm.position(DEGREES)` | current angle, float |
+| `claw.close()` (alias `claw.grab()`) | close (~0.3 s). Grabs a pickable object whose centre is in the claw zone and whose height overlaps the jaws (from the claw height up to 40 mm above it). Objects stacked on it come along |
+| `claw.open()` (alias `claw.release()`) | open (~0.3 s) and let go: the object rests on the highest platform or object top under its centre that isn't above its bottom, otherwise it drops to the floor |
+| `claw.is_holding()` | True while the claw holds something |
+
+Objects up on a platform or a stack (and the one in the claw) don't collide with the robot body or with
+floor objects; platforms are solid like walls. Magnet and claw are independent and can both be fitted.
+
 ## Brain
 | call | behaviour |
 |---|---|

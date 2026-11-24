@@ -93,14 +93,23 @@ export function createController(e: Engine): RobotController {
       if (on) e.magnetOn(); else e.magnetOff();
       return true;
     },
-    // PLACEHOLDER: the arm agent implements these
-    armAvailable: () => false,
-    armSpinTo: () => Promise.resolve(),
-    armSpin: () => undefined,
-    setArmVelocity: () => undefined,
-    armAngle: () => 0,
-    claw: () => Promise.resolve(),
-    clawHolding: () => false,
+    // arm (see sim/arm.ts); no-ops in worlds without an arm
+    armAvailable() { return e.arm.fitted; },
+    armSpinTo(degrees: number) {
+      if (!e.arm.fitted) return Promise.resolve();
+      return e.arm.spinTo(num(degrees));
+    },
+    armSpin(direction: 1 | -1 | 0) {
+      if (!e.arm.fitted) return;
+      e.arm.spin(direction > 0 ? 1 : direction < 0 ? -1 : 0);
+    },
+    setArmVelocity(p: number) { if (e.arm.fitted) e.arm.velocity = clampPct(p); },
+    armAngle() { return e.state.arm ? round6(e.state.arm.angle) : 0; },
+    claw(closed: boolean) {
+      if (!e.arm.fitted) return Promise.resolve();
+      return e.arm.claw(!!closed);
+    },
+    clawHolding() { return !!(e.state.arm && e.state.arm.holding !== null); },
     setWheelVelocities(l: number, r: number) { e.setWheels(clampSigned(l), clampSigned(r)); },
   };
   return c;

@@ -89,11 +89,24 @@ export const API_OBJECTS: ApiObject[] = [
     methods: { time: "brain.timer.time(SECONDS)", clear: "brain.timer.clear()" },
   },
   ...driverObjects(),
+  // arm: arm and claw (only in playgrounds with an arm; listed after the motors so
+  // "spin belongs to left_motor" hints keep pointing at the wheels)
+  {
+    path: "arm", className: "Arm", example: "arm.spin_to_position(45, DEGREES)",
+    methods: {
+      spin_to_position: "arm.spin_to_position(45, DEGREES)", spin: "arm.spin(UP)", stop: "arm.stop()",
+      set_velocity: "arm.set_velocity(50, PERCENT)", position: "arm.position(DEGREES)",
+    },
+  },
+  {
+    path: "claw", className: "Claw", example: "claw.close()",
+    methods: { close: "claw.close()", grab: "claw.grab()", open: "claw.open()", release: "claw.release()", is_holding: "claw.is_holding()" },
+  },
 ];
 
 /** Top-level names the runtime installs (besides constants). */
 export const TOP_LEVEL = [
-  "drivetrain", "distance", "front_eye", "down_eye", "bumper", "location", "pen", "magnet", "brain",
+  "drivetrain", "distance", "front_eye", "down_eye", "bumper", "location", "pen", "magnet", "arm", "claw", "brain",
   "controller", "left_motor", "right_motor", "wait", "start", "print",
 ];
 

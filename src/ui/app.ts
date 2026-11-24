@@ -161,7 +161,7 @@ export function startApp(): void {
   let genEditor: PythonEditor | null = null;
   const refreshGenerated = debounce(() => { if (genEditor && !codeDrawer.hidden) genEditor.setText(safeGetPython()); }, 250);
 
-  const hw = (w: World) => ({ pen: !!w.hardware?.pen, magnet: !!w.hardware?.magnet });
+  const hw = (w: World) => ({ pen: !!w.hardware?.pen, magnet: !!w.hardware?.magnet, arm: !!w.hardware?.arm /* arm */ });
   const blocks: BlocksEditor = createBlocksEditor($("blocksHost"), {
     hardware: hw(world),
     onChange: () => {
@@ -202,6 +202,7 @@ export function startApp(): void {
     celebrated = false;
   }
 
+  let clawHeldId: string | null = null; // arm
   function onSimEvent(e: SimEvent): void {
     soundForSimEvent(e); // sound
     switch (e.type) {
@@ -209,8 +210,18 @@ export function startApp(): void {
         if (e.time - lastWallLog > 0.5) pendingLogs.push({ line: 0, text: "The robot hit a wall.", kind: "warn" });
         lastWallLog = e.time;
         break;
-      case "pickedUp": pendingLogs.push({ line: 0, text: `Magnet picked up ${e.objectId}.`, kind: "event" }); break;
-      case "dropped": pendingLogs.push({ line: 0, text: `Magnet dropped ${e.objectId}.`, kind: "event" }); break;
+      case "pickedUp": { // arm: the claw or the magnet
+        const byClaw = sim.state.arm?.holding === e.objectId;
+        clawHeldId = byClaw ? e.objectId : clawHeldId;
+        pendingLogs.push({ line: 0, text: `${byClaw ? "Claw" : "Magnet"} picked up ${e.objectId}.`, kind: "event" });
+        break;
+      }
+      case "dropped": {
+        const byClaw = clawHeldId === e.objectId;
+        if (byClaw) clawHeldId = null;
+        pendingLogs.push({ line: 0, text: `${byClaw ? "Claw let go of" : "Magnet dropped"} ${e.objectId}.`, kind: "event" });
+        break;
+      }
       case "zoneEntered": {
         const z = world.zones.find((q) => q.id === e.zoneId);
         pendingLogs.push({ line: 0, text: `Entered ${z?.label || e.zoneId}.`, kind: "event" });
@@ -685,6 +696,7 @@ export function startApp(): void {
     if (w.hardware?.pen) parts.push("pen");
     if (w.hardware?.magnet) parts.push("magnet");
     if (w.robotRules?.locked) parts.push("robot locked"); // builder
+    if (w.hardware?.arm) parts.push("arm + claw"); // arm
     setText($("worldMeta"), `${w.name} · ${parts.join(" · ")}`);
     updateRobotBtn(); // builder
     if (!opts.offerStarter) return;

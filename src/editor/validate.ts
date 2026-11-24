@@ -59,6 +59,23 @@ export function validateWorld(w: World): Issue[] {
         if (g.zones.length === 0) out.push({ level: "error", text: `${n} has no zones to visit.`, goal: i });
         g.zones.forEach((z) => need(z));
         break;
+      // arm
+      case "objectsOnPlatform": {
+        const p = (w.platforms ?? []).find((q) => q.id === g.platform);
+        if (!g.platform) out.push({ level: "error", text: `${n} needs a platform.`, goal: i });
+        else if (!p) out.push({ level: "error", text: `${n} uses platform "${g.platform}", which no longer exists.`, goal: i });
+        const avail = w.objects.filter((o) => o.pickable && (!g.color || o.color === g.color)).length;
+        if (g.count > avail)
+          out.push({ level: "error", text: `${n} needs ${g.count} ${g.color ? g.color.toLowerCase() + " " : ""}pickable object(s), but the level has ${avail}.`, goal: i });
+        if (!w.hardware?.arm) out.push({ level: "warn", text: `${n}: the arm is not fitted (Level settings), so students can't lift objects onto platforms.`, goal: i });
+        break;
+      }
+      case "stackHeight":
+        if (g.zone !== undefined) need(g.zone);
+        if (g.count > w.objects.length)
+          out.push({ level: "error", text: `${n} needs a stack of ${g.count}, but the level doesn't have enough pickable objects.`, goal: i });
+        if (!w.hardware?.arm) out.push({ level: "warn", text: `${n}: the arm is not fitted (Level settings), so students can't stack objects.`, goal: i });
+        break;
       case "maxTime":
         if (!(g.seconds > 0)) out.push({ level: "error", text: `${n} needs a time above 0 seconds.`, goal: i });
         break;
@@ -112,8 +129,16 @@ export function validateWorld(w: World): Issue[] {
     if (outside) out.push({ level: "warn", text: `Floor paint "${f.id}" is outside the field.`, id: f.id });
   }
 
-  if (w.objects.some((o) => o.pickable) && !w.hardware?.magnet)
-    out.push({ level: "info", text: "Some objects can be picked up, but the magnet is not fitted (Level settings)." });
+  // arm: platforms in the field, robot start not on one
+  for (const p of w.platforms ?? []) {
+    if (Math.abs(p.x) + p.w / 2 > hw || Math.abs(p.y) + p.h / 2 > hh)
+      out.push({ level: "error", text: `Platform "${p.id}" is outside the field.`, id: p.id });
+    if (Math.abs(s.x - p.x) < p.w / 2 + r && Math.abs(s.y - p.y) < p.h / 2 + r)
+      out.push({ level: "error", text: `The robot start is on top of platform "${p.id}".`, id: START_ID });
+  }
+
+  if (w.objects.some((o) => o.pickable) && !w.hardware?.magnet && !w.hardware?.arm /* arm */)
+    out.push({ level: "info", text: "Some objects can be picked up, but neither the magnet nor the arm is fitted (Level settings)." });
 
   return out;
 }

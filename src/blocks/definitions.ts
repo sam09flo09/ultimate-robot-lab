@@ -86,6 +86,14 @@ export const BLOCK_DEFS: Record<string, unknown>[] = [
   { type: "robot_pen_color", message0: "set pen colour to %1", args0: [dd("COLOR", PEN_COLOURS)], ...STMT, style: "rl_pen", tooltip: "Change the pen's colour." },
   // ------------------------------------------------------------ magnet
   { type: "robot_magnet", message0: "magnet %1", args0: [dd("MODE", [["pick up", "BOOST"], ["drop", "DROP"]])], ...STMT, style: "rl_magnet", tooltip: "Pick up the object just in front, or drop it." },
+  // ------------------------------------------------------------ arm (only in worlds with an arm)
+  { type: "robot_arm_spin_to", message0: "spin arm to %1 degrees %2 wait", args0: [num("ANGLE"), waitBox], ...STMT, style: "rl_arm", tooltip: "Move the arm to an angle: 0 = down (claw at the floor), 90 = straight up. Stops early if it lands on something." },
+  { type: "robot_arm_spin", message0: "move arm %1", args0: [dd("DIR", [["up", "UP"], ["down", "DOWN"]])], ...STMT, style: "rl_arm", tooltip: "Keep the arm moving until 'stop arm' (it stops by itself at the top and bottom)." },
+  { type: "robot_arm_stop", message0: "stop arm", ...STMT, style: "rl_arm", tooltip: "Stop the arm where it is." },
+  { type: "robot_arm_set_velocity", message0: "set arm velocity to %1 %%", args0: [num("VALUE")], ...STMT, style: "rl_arm", tooltip: "Arm speed from 1 to 100 percent (50 to start with)." },
+  { type: "robot_arm_position", message0: "arm position in degrees", ...NUM_OUT, style: "rl_arm", tooltip: "The arm's angle: 0 (down) to 90 (up)." },
+  { type: "robot_claw", message0: "%1 claw", args0: [dd("ACTION", [["close", "close"], ["open", "open"]])], ...STMT, style: "rl_arm", tooltip: "Close the claw to grab the object in front of it (at the claw's height), or open it to let go." },
+  { type: "robot_claw_holding", message0: "claw holding?", ...BOOL_OUT, style: "rl_arm", tooltip: "True while the claw is holding something." },
   // ------------------------------------------------------------ looks
   { type: "robot_screen_print", message0: "print %1 on screen", args0: [any("VALUE")], ...STMT, style: "rl_looks", tooltip: "Show text or a number on the robot's screen." },
   { type: "robot_screen_newline", message0: "screen new line", ...STMT, style: "rl_looks", tooltip: "Move to the next line on the screen." },

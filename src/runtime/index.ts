@@ -593,6 +593,60 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
       }),
     });
 
+    // ---- arm and claw (arm: only in worlds with hardware.arm)
+    const NO_ARM = "This playground has no arm. Pick a playground with an arm and claw (like Stack Shop) to lift and stack things.";
+    const needArm = () => { if (!ctl.armAvailable()) oops("RuntimeError", NO_ARM); };
+    const A = {
+      spin_to_position: { label: "arm.spin_to_position", params: ["angle", "units"], required: 1, kw: ["wait"], example: "arm.spin_to_position(45, DEGREES)" },
+      spin: { label: "arm.spin", params: ["direction"], required: 1, example: "arm.spin(UP)" },
+      stop: { label: "arm.stop", params: [], required: 0, example: "arm.stop()" },
+      set_velocity: { label: "arm.set_velocity", params: ["velocity", "units"], required: 1, example: "arm.set_velocity(50, PERCENT)" },
+      position: { label: "arm.position", params: ["units"], required: 0, example: "arm.position(DEGREES)" },
+    } satisfies Record<string, Spec>;
+    const arm = makeObject("Arm", {
+      spin_to_position: api(A.spin_to_position, (a, kw) => {
+        const s = A.spin_to_position;
+        const ang = needNumber(s, "angle", a[0], "45");
+        needUnit(s, a[1], ["DEGREES"], "DEGREES");
+        const wait = needWait(s, kw.wait);
+        needArm();
+        const c = Math.max(0, Math.min(90, ang));
+        if (c !== ang) log(ctx, "The arm goes from 0 (down) to 90 (straight up) DEGREES, so " + ang + " became " + c + ".", "warn");
+        return motion("arm." + callText("spin_to_position", a, kw), ctl.armSpinTo(c), wait);
+      }),
+      spin: api(A.spin, (a) => {
+        const d = constOf(a[0]);
+        if (d === "FORWARD" || d === "REVERSE") oops("ValueError", "arm.spin moves the arm UP or DOWN, not " + d + ". Example: arm.spin(UP).");
+        if (d !== "UP" && d !== "DOWN") oops("ValueError", "arm.spin needs UP or DOWN. Example: arm.spin(UP). You gave " + argName(a[0]) + "." + constHint(a[0]));
+        needArm();
+        step("arm." + callText("spin", a, {}), true);
+        ctl.armSpin(d === "UP" ? 1 : -1);
+        return none();
+      }),
+      stop: api(A.stop, () => { needArm(); step("arm.stop()", true); ctl.armSpin(0); return none(); }),
+      set_velocity: api(A.set_velocity, (a) => {
+        const v = velocity(A.set_velocity, a);
+        needArm();
+        step("arm." + callText("set_velocity", a, {}), true);
+        ctl.setArmVelocity(v);
+        return none();
+      }),
+      position: api(A.position, (a) => { needUnit(A.position, a[0], ["DEGREES"], "DEGREES"); needArm(); return pyFloat(round(ctl.armAngle(), 2)); }),
+    });
+    function clawMove(name: string, closed: boolean) {
+      return api({ label: "claw." + name, params: [], required: 0, example: "claw." + name + "()" }, () => {
+        needArm();
+        return motion("claw." + name + "()", ctl.claw(closed), true);
+      });
+    }
+    const claw = makeObject("Claw", {
+      close: clawMove("close", true),
+      grab: clawMove("grab", true),
+      open: clawMove("open", false),
+      release: clawMove("release", false),
+      is_holding: api({ label: "claw.is_holding", params: [], required: 0, example: "claw.is_holding()" }, () => { needArm(); return pyBool(ctl.clawHolding()); }),
+    });
+
     // ---- brain
     const toText = (v: any) => (v instanceof Sk.builtin.str ? (v as any).v : String(new Sk.builtin.str(v).v));
     const screen = makeObject("Screen", {
@@ -732,7 +786,7 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
     for (const c of CONSTANTS) Sk.builtins[c] = pyStr(c);
     Object.assign(Sk.builtins, {
       drivetrain, distance, front_eye: eye("front_eye"), down_eye: eye("down_eye"), bumper, location,
-      pen, magnet, brain, controller, left_motor: motorObject("left_motor"), right_motor: motorObject("right_motor"),
+      pen, magnet, arm, claw, brain, controller, left_motor: motorObject("left_motor"), right_motor: motorObject("right_motor"),
       wait: waitFn, start: startFn,
     });
 

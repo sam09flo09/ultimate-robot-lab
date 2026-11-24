@@ -8,7 +8,7 @@ import { normDeg } from "./levelFile";
 export const START_ID = "@start";
 export const ROBOT_SIZE = 140;
 
-export type ItemKind = "start" | "wall" | "floor" | "object" | "zone";
+export type ItemKind = "start" | "wall" | "floor" | "object" | "zone" | "platform"; // arm: platform
 export interface ItemRef { kind: ItemKind; id: string; index: number }
 
 // ------------------------------------------------------------------ basics
@@ -72,6 +72,8 @@ export function findItem(w: World, id: string | null | undefined): ItemRef | nul
   if (i >= 0) return { kind: "object", id, index: i };
   i = w.zones.findIndex((x) => x.id === id);
   if (i >= 0) return { kind: "zone", id, index: i };
+  i = (w.platforms ?? []).findIndex((x) => x.id === id); // arm
+  if (i >= 0) return { kind: "platform", id, index: i };
   return null;
 }
 
@@ -109,6 +111,10 @@ export function hitTest(w: World, p: Vec, tol: number): ItemRef | null {
     const wl = w.walls[i];
     if (distToSegment(p, wl.a, wl.b) <= wl.thickness / 2 + tol) return { kind: "wall", id: wl.id ?? "", index: i };
   }
+  const ps = w.platforms ?? []; // arm
+  for (let i = ps.length - 1; i >= 0; i--) {
+    if (pointInRect(p, ps[i].x, ps[i].y, ps[i].w, ps[i].h, 0, tol)) return { kind: "platform", id: ps[i].id, index: i };
+  }
   let best: ItemRef | null = null;
   let bestArea = Infinity;
   for (let i = w.zones.length - 1; i >= 0; i--) {
@@ -133,6 +139,7 @@ export function itemAnchor(w: World, r: ItemRef): Vec {
     case "wall": return { ...w.walls[r.index].a };
     case "object": return { x: w.objects[r.index].x, y: w.objects[r.index].y };
     case "zone": return { x: w.zones[r.index].x, y: w.zones[r.index].y };
+    case "platform": return { x: w.platforms![r.index].x, y: w.platforms![r.index].y };
     case "floor": {
       const f = w.floor[r.index];
       return f.kind === "line" ? { ...f.points[0] } : { x: f.x, y: f.y };
@@ -151,6 +158,7 @@ export function translateItem(w: World, r: ItemRef, dx: number, dy: number): voi
     }
     case "object": w.objects[r.index].x += dx; w.objects[r.index].y += dy; return;
     case "zone": w.zones[r.index].x += dx; w.zones[r.index].y += dy; return;
+    case "platform": w.platforms![r.index].x += dx; w.platforms![r.index].y += dy; return;
     case "floor": {
       const f = w.floor[r.index];
       if (f.kind === "line") f.points = f.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
@@ -167,6 +175,7 @@ export function removeItem(w: World, r: ItemRef): boolean {
     case "floor": w.floor.splice(r.index, 1); return true;
     case "object": w.objects.splice(r.index, 1); return true;
     case "zone": w.zones.splice(r.index, 1); return true;
+    case "platform": w.platforms!.splice(r.index, 1); return true;
   }
 }
 
@@ -181,6 +190,7 @@ export function handlesFor(w: World, r: ItemRef): Vec[] {
     }
     case "wall": return [{ ...w.walls[r.index].a }, { ...w.walls[r.index].b }];
     case "object": return [];
+    case "platform": { const p = w.platforms![r.index]; return [{ x: p.x + p.w / 2, y: p.y + p.h / 2 }]; }
     case "zone":
     case "floor": {
       const s = r.kind === "zone" ? w.zones[r.index] : w.floor[r.index];
@@ -204,6 +214,12 @@ export function dragHandle(w: World, orig: World, r: ItemRef, i: number, p: Vec)
       if (i === 0) w.walls[r.index].a = { ...p }; else w.walls[r.index].b = { ...p };
       return;
     case "object": return;
+    case "platform": {
+      const s = w.platforms![r.index], o = orig.platforms![r.index];
+      const rr = rectFromCorners({ x: o.x - o.w / 2, y: o.y - o.h / 2 }, p);
+      s.x = rr.x; s.y = rr.y; s.w = Math.max(40, rr.w); s.h = Math.max(40, rr.h);
+      return;
+    }
     case "zone":
     case "floor": {
       const s = r.kind === "zone" ? w.zones[r.index] : w.floor[r.index];
@@ -233,6 +249,7 @@ export function itemBounds(w: World, r: ItemRef): { minX: number; minY: number; 
     case "start": pad = ROBOT_SIZE * 0.71; pts.push(w.start); break;
     case "wall": pad = w.walls[r.index].thickness / 2; pts.push(w.walls[r.index].a, w.walls[r.index].b); break;
     case "object": { const o = w.objects[r.index]; pad = o.size * (o.shape === "box" ? 0.71 : 0.5); pts.push(o); break; }
+    case "platform": { const p = w.platforms![r.index]; pts.push({ x: p.x - p.w / 2, y: p.y - p.h / 2 }, { x: p.x + p.w / 2, y: p.y + p.h / 2 }); break; }
     case "zone":
     case "floor": {
       const s = r.kind === "zone" ? w.zones[r.index] : w.floor[r.index];
