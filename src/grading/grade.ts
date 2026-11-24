@@ -43,7 +43,7 @@ export interface GradeResult {
   projectName: string;
   worldId: string;
   worldName: string;
-  mode: "blocks" | "python" | "";
+  mode: "blocks" | "python" | "flowchart" | ""; // flowchart
   savedAt: string;           // ISO string from the file ("" if unknown)
   status: GradeStatus;
   statusText: string;        // short, plain text ("Finished", "NameError on line 4", ...)

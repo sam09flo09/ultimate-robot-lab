@@ -190,7 +190,7 @@ export function createGradingPanel(host: HTMLElement, opts: GradingPanelOptions)
     const runBox = h("div", {}, h("h4", {}, "Run"),
       h("div", {}, `${VERDICT_TEXT[r.verdict]} · ${r.statusText}`),
       r.errorText ? h("div", { class: "gr-sub" }, r.errorText) : null,
-      r.status !== "invalid" ? h("div", { class: "gr-sub" }, `${r.mode === "blocks" ? "Blocks" : "Python"} · ${r.steps} robot command${r.steps === 1 ? "" : "s"} · ${r.simSeconds} s of robot time · ended at ${finalText(r)}${r.finalPose ? `, facing ${r.finalPose.heading}°` : ""}`) : null,
+      r.status !== "invalid" ? h("div", { class: "gr-sub" }, `${r.mode === "blocks" ? "Blocks" : r.mode === "flowchart" ? "Flowchart" /* flowchart */ : "Python"} · ${r.steps} robot command${r.steps === 1 ? "" : "s"} · ${r.simSeconds} s of robot time · ended at ${finalText(r)}${r.finalPose ? `, facing ${r.finalPose.heading}°` : ""}`) : null,
       h("div", { class: "gr-sub" }, `Last saved: ${savedText(r.savedAt)}`),
       ...r.warnings.map((w) => h("div", { class: "gr-sub" }, w)));
     blocks.push(runBox);

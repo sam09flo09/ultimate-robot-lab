@@ -35,8 +35,9 @@ import { renderVariables } from "../debug/panel"; // debugger
 import { createRaceUi } from "../race/ui"; // race
 import { createInputHub } from "../input"; // controller
 import { createControllerPanel } from "../input/panel"; // controller
+import { createFlowchartEditor, sanitizeChart, type FlowchartEditor } from "../flowchart"; // flowchart
 
-type Mode = "blocks" | "python";
+type Mode = "blocks" | "python" | "flowchart"; // flowchart: third mode
 type MsgKind = "ok" | "info" | "err";
 type FileHandle = Parameters<typeof saveText>[0]["handle"];
 
@@ -69,6 +70,7 @@ export function startApp(): void {
   const worldMenu = $("worldMenu");
   const modeBlocksBtn = $("modeBlocks") as HTMLButtonElement;
   const modePythonBtn = $("modePython") as HTMLButtonElement;
+  const modeFlowBtn = $("modeFlow") as HTMLButtonElement; // flowchart
   const showCodeBtn = $("showCodeBtn") as HTMLButtonElement;
   const codeDrawer = $("codeDrawer");
   const restoreBtn = $("restoreBtn") as HTMLButtonElement;
@@ -152,7 +154,7 @@ export function startApp(): void {
   });
 
   let genEditor: PythonEditor | null = null;
-  const refreshGenerated = debounce(() => { if (genEditor && !codeDrawer.hidden) genEditor.setText(safeGetPython()); }, 250);
+  const refreshGenerated = debounce(() => { if (genEditor && !codeDrawer.hidden) genEditor.setText(generatedPython()); }, 250); // flowchart: either generator
 
   const hw = (w: World) => ({ pen: !!w.hardware?.pen, magnet: !!w.hardware?.magnet });
   const blocks: BlocksEditor = createBlocksEditor($("blocksHost"), {
@@ -164,6 +166,27 @@ export function startApp(): void {
   });
   const blankBlocksState: unknown = safe(() => deepCopy(blocks.getState())) ?? null;
   const blankBlocksPython = safeGetPython();
+  // flowchart: the flowchart editor (src/flowchart), same shape as the blocks editor
+  const flow: FlowchartEditor = createFlowchartEditor($("flowHost"), {
+    hardware: hw(world),
+    onChange: () => {
+      if (!running) { safe(() => flow.highlightLine(0)); genEditor?.mark(0, "run"); }
+      scheduleAutosave(); refreshGenerated(); activity?.onCodeChange();
+    },
+  });
+  const flowPython = (): string => safe(() => flow.getPython()) ?? "";
+  /** flowchart: Python made by the visual editor that is showing (blocks or flowchart). */
+  function generatedPython(): string { return mode === "flowchart" ? flowPython() : safeGetPython(); }
+  /** flowchart: the program that Run, Export and activities use in the current mode. */
+  function programSource(): string { return mode === "python" ? pyEditor.getText() : generatedPython(); }
+  /** flowchart: highlight a generated line in whichever visual editor is showing. */
+  function markVisual(line: number): void {
+    if (mode === "flowchart") safe(() => flow.highlightLine(line)); else safe(() => blocks.highlightLine(line));
+  }
+  // flowchart: the notebook feature reads the flowchart picture through this hook
+  (window as unknown as Record<string, unknown>).__robotLabFlowchart = {
+    exportImage: async (): Promise<string> => (mode === "flowchart" && !flow.isBlank() ? (await safe(() => flow.exportImage())) ?? "" : ""),
+  };
 
   function safe<T>(fn: () => T): T | undefined {
     try { return fn(); } catch (e) { console.error(e); return undefined; }
@@ -223,6 +246,7 @@ export function startApp(): void {
   }
   new ResizeObserver(() => { fitCanvas(); safe(() => blocks.resize()); }).observe(fieldBox);
   new ResizeObserver(() => safe(() => blocks.resize())).observe($("blocksHost"));
+  new ResizeObserver(() => safe(() => flow.resize())).observe($("flowHost")); // flowchart
 
   let last = performance.now();
   let statusTimer = 0, goalsTimer = 0;
@@ -280,7 +304,7 @@ export function startApp(): void {
       shownLine = pendingLine; shownPaused = isPaused;
       const kind = isPaused ? "paused" : "run";
       if (mode === "python") pyEditor.mark(shownLine, kind);
-      else { safe(() => blocks.highlightLine(shownLine)); genEditor?.mark(shownLine, kind); }
+      else { markVisual(shownLine); genEditor?.mark(shownLine, kind); } // flowchart
     }
     syncDebugUI();
     if (pendingVars) { lastVars = pendingVars; renderVariables($("varsBox"), pendingVars, { running, paused: isPaused }); pendingVars = null; }
@@ -319,7 +343,7 @@ export function startApp(): void {
     document.querySelector("#tabScreen .dot")?.setAttribute("hidden", "");
   }
   function clearHighlights(): void {
-    pyEditor.mark(0, "run"); genEditor?.mark(0, "run"); safe(() => blocks.highlightLine(0));
+    pyEditor.mark(0, "run"); genEditor?.mark(0, "run"); safe(() => blocks.highlightLine(0)); safe(() => flow.highlightLine(0)); // flowchart
     shownLine = -1; pendingLine = 0; shownPaused = false;
   }
 
@@ -439,11 +463,12 @@ export function startApp(): void {
     app.classList.toggle("is-running", on);
     runBtn.disabled = on; stopBtn.disabled = !on; resetBtn.disabled = on;
     debugUIKey = ""; syncDebugUI(); // debugger
-    worldBtn.disabled = on; modeBlocksBtn.disabled = on || !!lockedMode; modePythonBtn.disabled = on || !!lockedMode;
+    worldBtn.disabled = on; modeBlocksBtn.disabled = on || !!lockedMode; modePythonBtn.disabled = on || !!lockedMode; modeFlowBtn.disabled = on || !!lockedMode; // flowchart
     ($("actBtn") as HTMLButtonElement).disabled = on;
     for (const id of ["mNew", "mOpen", "mTeacher"]) ($(id) as HTMLButtonElement).disabled = on;
     pyEditor.setReadOnly(on);
     safe(() => blocks.setReadOnly(on));
+    safe(() => flow.setReadOnly(on)); // flowchart: read-only while running
     if (!on) endDriverRun(); // controller
     syncController(); // controller
     if (on) { last = performance.now(); schedule(); }
@@ -466,8 +491,13 @@ export function startApp(): void {
       showMsg("err", "The Python engine did not load. Reload the page (it works offline once it has loaded one time).");
       return;
     }
-    const src = mode === "blocks" ? safeGetPython() : pyEditor.getText();
-    if (mode === "blocks" && genEditor && !codeDrawer.hidden) genEditor.setText(src);
+    // flowchart: a chart that can't become Python is explained (pointing at the shape/arrow) instead of run
+    if (mode === "flowchart") {
+      const fe = safe(() => flow.getError());
+      if (fe) { clearHighlights(); showMsg("err", `<b>This flowchart can't run yet.</b><br>${esc(fe.message)}`); safe(() => flow.showError(fe)); playSound("error"); return; }
+    }
+    const src = programSource(); // flowchart
+    if (mode !== "python" && genEditor && !codeDrawer.hidden) genEditor.setText(src);
     clearMsg(); clearOutput(); clearHighlights();
     unlockAudio(); playSound("start"); // sound
     if (autoReset.checked || race.active) resetRobot(); // race: always reset before a race run
@@ -524,9 +554,9 @@ export function startApp(): void {
       const line = r.error.line;
       clearHighlights();
       if (mode === "python") pyEditor.mark(line, "err");
-      else { safe(() => blocks.highlightLine(line)); genEditor?.mark(line, "err"); }
-      const note = mode === "blocks" && line
-        ? `<br><span style="opacity:.85">Line numbers are in the Python made from your blocks — press <b>Show code</b> to see it.</span>` : "";
+      else { markVisual(line); genEditor?.mark(line, "err"); } // flowchart
+      const note = mode !== "python" && line
+        ? `<br><span style="opacity:.85">Line numbers are in the Python made from your ${mode === "flowchart" ? "flowchart" : "blocks"} — press <b>Show code</b> to see it.</span>` : "";
       showMsg("err", r.error.html + note);
       return;
     }
@@ -542,6 +572,7 @@ export function startApp(): void {
     if (r.steps === 0) {
       showMsg("info", mode === "python"
         ? "Program finished. No statements moved the robot. Delete <code>pass</code> and add your statements inside <code>main()</code>."
+        : mode === "flowchart" ? "Program finished. No shapes moved the robot. Add an Action shape and draw an arrow to it from Start." // flowchart
         : "Program finished. No blocks moved the robot. Snap some motion blocks under the start block.");
       return;
     }
@@ -640,6 +671,7 @@ export function startApp(): void {
     lastGoalsKey = "";
     $("celebrate").hidden = true;
     safe(() => blocks.setHardware(hw(w)));
+    safe(() => flow.setHardware(hw(w))); // flowchart
     view.invalidate();
     fitCanvas();
     redraw();
@@ -657,7 +689,7 @@ export function startApp(): void {
       if (pyEditor.getText() !== starter) pyEditor.setText(starter);
     } else if (w.starter?.python && pyEditor.getText() !== starter) {
       showMsg("info", `<b>${esc(w.name)}</b> has starter code. Load it into the Python editor? (It replaces what's there now.)`, [
-        { label: "Load starter code", primary: true, onClick: () => { pyEditor.setText(starter); clearMsg(); if (mode === "blocks") void setMode("python", false); } },
+        { label: "Load starter code", primary: true, onClick: () => { pyEditor.setText(starter); clearMsg(); if (mode !== "python") void setMode("python", false); } /* flowchart: also from flowchart mode */ },
         { label: "Keep my code", onClick: clearMsg },
       ]);
     }
@@ -676,23 +708,32 @@ export function startApp(): void {
     app.dataset.mode = mode;
     modeBlocksBtn.setAttribute("aria-checked", String(mode === "blocks"));
     modePythonBtn.setAttribute("aria-checked", String(mode === "python"));
+    modeFlowBtn.setAttribute("aria-checked", String(mode === "flowchart")); // flowchart
     $("blocksHost").hidden = mode !== "blocks";
+    $("flowHost").hidden = mode !== "flowchart"; // flowchart
     $("pyHost").hidden = mode !== "python";
-    showCodeBtn.hidden = mode !== "blocks";
-    if (mode !== "blocks") { codeDrawer.hidden = true; showCodeBtn.setAttribute("aria-expanded", "false"); }
-    setText($("codeLabel"), `Your program · ${mode === "blocks" ? "Blocks" : "Python"}`);
+    showCodeBtn.hidden = mode === "python"; // flowchart: Show code in blocks and flowchart modes
+    if (mode === "python") { codeDrawer.hidden = true; showCodeBtn.setAttribute("aria-expanded", "false"); setText(showCodeBtn, "Show code"); }
+    setText($("codeLabel"), `Your program · ${mode === "blocks" ? "Blocks" : mode === "flowchart" ? "Flowchart" : "Python"}`);
+    setText($("drawerLabel"), `Python made from your ${mode === "flowchart" ? "flowchart" : "blocks"} (read-only)`); // flowchart
+    if (mode !== "python" && genEditor && !codeDrawer.hidden) genEditor.setText(generatedPython()); // flowchart
     if (mode === "blocks") requestAnimationFrame(() => safe(() => blocks.resize()));
+    if (mode === "flowchart") requestAnimationFrame(() => safe(() => flow.resize())); // flowchart
   }
 
   async function setMode(m: Mode, offerConvert: boolean): Promise<void> {
     if (running || m === mode) return;
-    if (m === "python" && offerConvert) {
-      const gen = safeGetPython();
+    if (m === "python" && offerConvert && mode !== "python") {
+      // flowchart: converting works the same way from blocks or from a flowchart (one-way)
+      const fromFlow = mode === "flowchart";
+      const what = fromFlow ? "flowchart" : "blocks";
+      const fe = fromFlow ? safe(() => flow.getError()) : null;
+      const gen = fe ? "" : fromFlow ? (flow.isBlank() ? "" : flowPython()) : safeGetPython();
       if (gen && gen !== blankBlocksPython && gen !== pyEditor.getText()) {
         const choice = await ask("Switch to Python",
-          `<p>Do you want to copy the Python made from your blocks into the Python editor?</p>
-           <p><b>Converting is one-way:</b> changes you make in Python will not go back into blocks.
-           Your blocks stay safe in Blocks mode.${isPythonUnchanged(world) ? "" : " Converting replaces the code in the Python editor now."}</p>`,
+          `<p>Do you want to copy the Python made from your ${what} into the Python editor?</p>
+           <p><b>Converting is one-way:</b> changes you make in Python will not go back into your ${what}.
+           Your ${what} ${fromFlow ? "stays" : "stay"} safe in ${fromFlow ? "Flowchart" : "Blocks"} mode.${isPythonUnchanged(world) ? "" : " Converting replaces the code in the Python editor now."}</p>`,
           [{ id: "cancel", label: "Cancel" }, { id: "switch", label: "Just switch" }, { id: "convert", label: "Convert to Python", kind: "primary" }]);
         if (choice === "cancel") return;
         if (choice === "convert") pyEditor.setText(gen);
@@ -706,6 +747,7 @@ export function startApp(): void {
   }
   modeBlocksBtn.addEventListener("click", () => void setMode("blocks", true));
   modePythonBtn.addEventListener("click", () => void setMode("python", true));
+  modeFlowBtn.addEventListener("click", () => void setMode("flowchart", true)); // flowchart
 
   showCodeBtn.addEventListener("click", () => {
     const open = codeDrawer.hidden;
@@ -713,23 +755,25 @@ export function startApp(): void {
     showCodeBtn.setAttribute("aria-expanded", String(open));
     setText(showCodeBtn, open ? "Hide code" : "Show code");
     if (open) {
-      if (!genEditor) genEditor = createPythonEditor($("genHost"), { doc: "", readOnly: true, label: "Python made from your blocks (read-only)" });
-      genEditor.setText(safeGetPython());
+      if (!genEditor) genEditor = createPythonEditor($("genHost"), { doc: "", readOnly: true, label: "Python made from your blocks or flowchart (read-only)" });
+      genEditor.setText(generatedPython()); // flowchart
     }
-    requestAnimationFrame(() => safe(() => blocks.resize()));
+    requestAnimationFrame(() => { safe(() => blocks.resize()); safe(() => flow.resize()); });
   });
 
   // ------------------------------------------------------------ project snapshot / load
   function snapshot(): AutosaveData {
-    return { project: currentProject(), pythonText: pyEditor.getText(), blocksState: safe(() => blocks.getState()) ?? null };
+    return { project: currentProject(), pythonText: pyEditor.getText(), blocksState: safe(() => blocks.getState()) ?? null,
+      flowState: safe(() => flow.getState()) ?? null }; // flowchart
   }
   function currentProject(): ProjectFile {
     return {
       format: "robot-lab-project", version: 1,
       name: cleanName(projName.value),
       mode,
-      python: mode === "blocks" ? safeGetPython() : pyEditor.getText(),
+      python: programSource(), // flowchart: generated Python in blocks/flowchart mode
       blocks: mode === "blocks" ? safe(() => blocks.getState()) ?? null : null,
+      ...(mode === "flowchart" ? { flowchart: safe(() => flow.getState()) ?? null } : {}), // flowchart
       worldId,
       customWorld: worldId === "custom" ? customWorld : null,
       savedAt: new Date().toISOString(),
@@ -737,7 +781,7 @@ export function startApp(): void {
     };
   }
 
-  function loadProject(p: ProjectFile, extra: { pythonText?: string; blocksState?: unknown; activityReview?: boolean } = {}): string[] {
+  function loadProject(p: ProjectFile, extra: { pythonText?: string; blocksState?: unknown; flowState?: unknown; activityReview?: boolean } = {}): string[] {
     const warnings: string[] = [];
     if (running) stop();
     let w: World | undefined;
@@ -754,6 +798,18 @@ export function startApp(): void {
       safe(() => blocks.setState(blankBlocksState));
       if (p.mode === "blocks") {
         warnings.push("The blocks in this file couldn't be loaded, so the Python made from them was put in the Python editor.");
+        if (p.python) pyEditor.setText(p.python);
+        p = { ...p, mode: "python" };
+      }
+    }
+    // flowchart: the file's flowchart (or the autosaved one); unreadable → its Python goes to the Python editor
+    const fs = extra.flowState !== undefined ? extra.flowState : p.flowchart ?? null;
+    try { flow.setState(fs ?? null); }
+    catch (e) {
+      console.error(e);
+      safe(() => flow.setState(null));
+      if (p.mode === "flowchart") {
+        warnings.push("The flowchart in this file couldn't be loaded, so the Python made from it was put in the Python editor.");
         if (p.python) pyEditor.setText(p.python);
         p = { ...p, mode: "python" };
       }
@@ -784,6 +840,7 @@ export function startApp(): void {
     projName.value = "My robot project"; updateTitle();
     pyEditor.setText(starterFor(world));
     safe(() => blocks.setState(blankBlocksState));
+    safe(() => flow.setState(null)); // flowchart
     resetRobot(); clearOutput(); clearMsg(); clearHighlights();
     scheduleAutosave();
   }
@@ -847,7 +904,7 @@ export function startApp(): void {
   }
 
   function exportPy(): void {
-    const src = mode === "blocks" ? safeGetPython() : pyEditor.getText();
+    const src = programSource(); // flowchart
     download(new Blob([src], { type: "text/x-python" }), fileStem(projName.value).replace(/\s+/g, "_") + ".py");
   }
 
@@ -859,7 +916,7 @@ export function startApp(): void {
 
   // ------------------------------------------------------------ restore last project
   function isFreshProject(): boolean {
-    return isPythonUnchanged(world) && safeGetPython() === blankBlocksPython && cleanName(projName.value) === "My robot project";
+    return isPythonUnchanged(world) && safeGetPython() === blankBlocksPython && (safe(() => flow.isBlank()) ?? true) && cleanName(projName.value) === "My robot project"; // flowchart
   }
   async function restore(): Promise<void> {
     if (!previous || running) return;
@@ -868,13 +925,14 @@ export function startApp(): void {
         [{ id: "cancel", label: "Cancel" }, { id: "ok", label: "Restore", kind: "primary" }]);
       if (c !== "ok") return;
     }
-    const warnings = loadProject(previous.project, { pythonText: previous.pythonText, blocksState: previous.blocksState });
+    const warnings = loadProject(previous.project, { pythonText: previous.pythonText, blocksState: previous.blocksState, flowState: previous.flowState }); // flowchart
     restoreBtn.hidden = true; mRestore.hidden = true;
     showMsg("ok", `Restored <b>${esc(previous.project.name)}</b>.` + warnings.map((w) => "<br>" + esc(w)).join(""));
   }
   const previousIsBlank = !!previous && cleanName(previous.project.name) === "My robot project" &&
     [DEFAULT_TEMPLATE, "", ...playgrounds.map(starterFor)].includes(previous.pythonText) &&
-    (previous.project.mode === "python" || previous.project.python === blankBlocksPython);
+    (previous.project.mode === "python" || previous.project.python === blankBlocksPython) &&
+    (!previous.flowState || (sanitizeChart(previous.flowState)?.chart.nodes.length ?? 1) <= 1); // flowchart
   if (previous && !previousIsBlank) {
     restoreBtn.hidden = false; mRestore.hidden = false;
     restoreBtn.title = `Bring back “${previous.project.name}” from this browser`;
@@ -952,21 +1010,22 @@ export function startApp(): void {
   });
 
   // ------------------------------------------------------------ activities (guided lessons, src/activities)
-  const modeTitles = { blocks: modeBlocksBtn.title, python: modePythonBtn.title };
+  const modeTitles = { blocks: modeBlocksBtn.title, python: modePythonBtn.title, flowchart: modeFlowBtn.title }; // flowchart
   function setLock(m: Mode | null): void {
     lockedMode = m;
-    modeBlocksBtn.disabled = running || !!m; modePythonBtn.disabled = running || !!m;
+    modeBlocksBtn.disabled = running || !!m; modePythonBtn.disabled = running || !!m; modeFlowBtn.disabled = running || !!m; // flowchart
     const why = m ? `This activity step uses ${m === "python" ? "Python" : "Blocks"}.` : "";
     modeBlocksBtn.title = why || modeTitles.blocks;
     modePythonBtn.title = why || modeTitles.python;
+    modeFlowBtn.title = why || modeTitles.flowchart; // flowchart
     $("modeBlocks").parentElement!.classList.toggle("locked", !!m);
   }
   function sameWorld(a: World, b: World): boolean {
     try { return JSON.stringify(a) === JSON.stringify(b); } catch { return false; }
   }
   activity = createActivityPanel($("activityHost"), {
-    getPython: () => (mode === "blocks" ? safeGetPython() : pyEditor.getText()),
-    getMode: () => mode,
+    getPython: () => programSource(), // flowchart: activity checks read the flowchart's Python too
+    getMode: () => mode as "blocks" | "python", // flowchart: steps only lock blocks/python; "flowchart" never equals a lock
     setMode: (m) => { if (m !== mode) void setMode(m, false); },
     setLock,
     loadWorld: (spec) => {
@@ -999,7 +1058,7 @@ export function startApp(): void {
     },
     isRunning: () => running,
     changed: () => scheduleAutosave(),
-    layout: () => requestAnimationFrame(() => safe(() => blocks.resize())),
+    layout: () => requestAnimationFrame(() => { safe(() => blocks.resize()); safe(() => flow.resize()); }), // flowchart
   });
 
   const findActivity = (id: string): Activity | undefined => getBuiltIn(id) ?? loadImported().find((a) => a.id === id);
@@ -1197,7 +1256,7 @@ export function startApp(): void {
     const curId = loadCurrentId();
     const cur = curId ? findActivity(curId) : undefined;
     if (cur && previous?.project.activity?.activity.id === cur.id) {
-      loadProject(previous.project, { pythonText: previous.pythonText, blocksState: previous.blocksState });
+      loadProject(previous.project, { pythonText: previous.pythonText, blocksState: previous.blocksState, flowState: previous.flowState }); // flowchart
       restoreBtn.hidden = true; mRestore.hidden = true;
     } else if (cur) {
       activity.start(cur, { applyStep: !previous || previousIsBlank });
@@ -1220,6 +1279,7 @@ export function startApp(): void {
     activityState: () => activity?.state() ?? null,
     // controller
     controller: () => hub.read(), controllerUsed: () => onControllerUsed(),
+    flowchart: { getState: () => flow.getState(), setState: (st: unknown) => flow.setState(st), python: () => flowPython(), error: () => flow.getError() }, // flowchart
     driving: () => ({ driverRun, speed: runSpeed(), sources: hub.sources(), touch: hub.touchShown, active: hub.active }),
   };
 }

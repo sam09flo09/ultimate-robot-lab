@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Robot Lab</title>
-  <meta name="description" content="Program a virtual robot with blocks or Python. Runs entirely in your browser.">
+  <meta name="description" content="Program a virtual robot with blocks, flowcharts or Python. Runs entirely in your browser.">
   <meta name="theme-color" content="#0C0B0A">
   <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
   <link rel="icon" href="./icons/icon-192.png" type="image/png" sizes="192x192">
@@ -36,6 +36,9 @@
       <div class="seg" role="radiogroup" aria-label="Coding mode">
         <button id="modeBlocks" class="seg-btn" role="radio" aria-checked="true" aria-label="Blocks"
           title="Code with blocks. The blocks workspace is kept separately from the Python editor.">Blocks</button>
+        <!-- flowchart: third coding mode (src/flowchart) -->
+        <button id="modeFlow" class="seg-btn" role="radio" aria-checked="false" aria-label="Flowchart"
+          title="Draw a flowchart: shapes joined by arrows. It turns into Python that runs on the robot.">Flowchart</button>
         <button id="modePython" class="seg-btn" role="radio" aria-checked="false" aria-label="Python"
           title="Type Python. Switching keeps your blocks; you can convert blocks into Python once.">Python</button>
       </div>
@@ -89,10 +92,11 @@
         <div id="activityHost" class="act-panel" hidden></div>
         <div class="editor-wrap">
           <div id="blocksHost" class="blocks-host" aria-label="Blocks workspace"></div>
+          <!-- flowchart --><div id="flowHost" class="flow-host" aria-label="Flowchart workspace" hidden></div>
           <div id="pyHost" class="py-host" hidden></div>
         </div>
         <div id="codeDrawer" class="code-drawer" hidden>
-          <div class="drawer-head"><span class="label">Python made from your blocks (read-only)</span></div>
+          <div class="drawer-head"><span class="label" id="drawerLabel">Python made from your blocks (read-only)</span></div><!-- flowchart: id for the label -->
           <div id="genHost" class="gen-host"></div>
         </div>
         <div id="msg" class="msg" role="status" aria-live="polite"></div>

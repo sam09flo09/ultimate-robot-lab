@@ -213,9 +213,11 @@ export interface ProjectFile {
   format: "robot-lab-project";
   version: 1;
   name: string;
-  mode: "blocks" | "python";
-  python: string;               // always present (for blocks mode it's the generated code)
+  mode: "blocks" | "python" | "flowchart"; // flowchart: third mode (src/flowchart)
+  python: string;               // always present (for blocks/flowchart mode it's the generated code)
   blocks: unknown | null;       // Blockly state if mode === "blocks"
+  /** flowchart: the flowchart (src/flowchart FlowChart JSON) if mode === "flowchart". */
+  flowchart?: unknown | null;
   worldId: string;              // a playground id, or "custom"
   customWorld: World | null;    // embedded when worldId === "custom" (teacher-made challenge)
   savedAt: string;              // ISO date

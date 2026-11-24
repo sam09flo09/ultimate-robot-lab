@@ -75,6 +75,7 @@ kbd { font-size: 11px; color: var(--gray); margin-left: auto; padding-left: 16px
 .col-head-tools { display: flex; gap: 6px; }
 .editor-wrap { flex: 1; min-height: 160px; position: relative; border: 1px solid var(--sand); border-radius: 8px; overflow: hidden; background: #fff; }
 .blocks-host, .py-host { position: absolute; inset: 0; }
+.flow-host { position: absolute; inset: 0; } /* flowchart: editor host (its own styles live in src/flowchart/styles.ts) */
 .py-host .cm-editor { height: 100%; }
 .code-drawer { flex: 0 0 34%; min-height: 120px; display: flex; flex-direction: column; gap: 4px; }
 .gen-host { flex: 1; min-height: 0; border: 1px solid var(--sand); border-radius: 8px; overflow: hidden; }
