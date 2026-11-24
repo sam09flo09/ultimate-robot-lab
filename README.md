@@ -2,6 +2,8 @@
 
 A classroom robot simulator for Chromebooks. Students program a virtual robot with blocks or Python,
 work through guided activities, and turn in `.robolab` files through Google Classroom.
+**Live site: https://sam09flo09.github.io/ultimate-robot-lab/**
+
 It runs entirely in the browser, works offline after the first visit, and collects no student data
 (see `public/privacy.html`).
 
