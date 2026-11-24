@@ -107,7 +107,7 @@
           <button id="stepBtn" class="btn btn-step" title="Step through: start paused on the first line, then press Step for each line (F10)">⤵ Step</button>
           <button id="stopBtn" class="btn btn-stop" disabled title="Stop the program (Esc)">■ Stop</button>
           <button id="resetBtn" class="btn" title="Put the robot back at the start">↺ Reset</button>
-          <div class="seg seg-speed" role="radiogroup" aria-label="Speed">
+          <div class="seg seg-speed" id="speedSeg" role="radiogroup" aria-label="Speed"><!-- controller: id for the "real speed" tooltip -->
             <button class="seg-btn" role="radio" aria-checked="false" data-speed="0.5" title="Slow">0.5×</button>
             <button class="seg-btn" role="radio" aria-checked="true" data-speed="1" title="Normal">1×</button>
             <button class="seg-btn" role="radio" aria-checked="false" data-speed="2.5" title="Fast">2.5×</button>
@@ -127,6 +127,9 @@
             </select>
             <button id="cameraReset" class="btn btn-sm" title="Show the whole field" aria-label="Reset camera">⌖</button>
           </div>
+          <!-- controller: on-screen controller toggle + "Driving" chip (src/input) -->
+          <button id="padToggle" class="btn btn-sm btn-pad" aria-pressed="false" aria-label="On-screen controller" title="Show on-screen controller"><span aria-hidden="true">🎮</span></button>
+          <span id="driveChip" class="drive-chip" role="status" hidden></span>
         </div>
         <div id="fieldBox" class="fieldbox">
           <canvas id="field" role="img" aria-label="Playground with the robot"></canvas>
@@ -159,6 +162,7 @@
           <button role="tab" id="tabScreen" aria-selected="false" aria-controls="panelScreen" tabindex="-1">Screen<i class="dot" hidden></i></button>
           <button role="tab" id="tabGoals" aria-selected="false" aria-controls="panelGoals" tabindex="-1">Challenge<i class="dot" hidden></i></button>
           <!-- debugger --><button role="tab" id="tabVars" aria-selected="false" aria-controls="panelVars" tabindex="-1">Variables</button>
+          <!-- controller --><button role="tab" id="tabCtl" aria-selected="false" aria-controls="panelCtl" tabindex="-1" aria-label="Controller" title="Controller: test your keys, gamepad or on-screen controller"><span aria-hidden="true">🎮</span><span class="tab-ctl-text">Controller</span></button>
         </div>
         <div class="tab-panels">
           <div role="tabpanel" id="panelLog" aria-labelledby="tabLog" class="panel">
@@ -173,6 +177,10 @@
           <!-- debugger: Variables panel (src/debug/panel.ts) -->
           <div role="tabpanel" id="panelVars" aria-labelledby="tabVars" class="panel" hidden>
             <div id="varsBox" class="vars" aria-live="off"></div>
+          </div>
+          <!-- controller: live controller picture + keyboard layout (src/input/panel.ts) -->
+          <div role="tabpanel" id="panelCtl" aria-labelledby="tabCtl" class="panel" hidden>
+            <div id="ctlBox" class="ctl"></div>
           </div>
         </div>
       </aside>

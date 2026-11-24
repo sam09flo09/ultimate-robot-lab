@@ -1,5 +1,7 @@
 /** Help panel content: a concise command card hand-written from docs/API.md. */
 
+import { keyTableHtml } from "../input/panel"; // controller
+
 const row = (code: string, what: string) => `<tr><td><code>${code}</code></td><td>${what}</td></tr>`;
 const table = (rows: string[]) => `<table class="ref-table"><tbody>${rows.join("")}</tbody></table>`;
 
@@ -86,6 +88,31 @@ start(main)</pre>
   <b>▶ Continue</b> carries on. The <b>Variables</b> tab shows your variables and their values.</p>
   <p>Typing in Python? After <code>drivetrain.</code> a list of commands pops up — use the arrow keys and Enter.
   Rest the mouse on a command to see what it does.</p>
+</section>
+
+<!-- controller -->
+<section>
+  <h3>Driving with a controller</h3>
+  <p>A <b>driver program</b> reads the controller in a loop and sets the motors, so you drive the robot yourself.
+  Use the keyboard, a USB or Bluetooth gamepad, or the on-screen controller (🎮 button above the playground).
+  Driver programs always run at real speed (1×). The <b>🎮</b> tab on the right shows what your program reads.</p>
+  ${table([
+    row("controller.axis3.position()", "left stick up/down, -100 to 100 (up is +)"),
+    row("controller.axis4.position()", "left stick left/right (right is +)"),
+    row("controller.axis2.position() / axis1", "right stick up/down / left/right"),
+    row("controller.buttonA.pressing()", "<code>True</code> while held; also B X Y, Up Down Left Right, L1 L2 R1 R2"),
+    row("left_motor.spin(FORWARD, 50, PERCENT)", "spin one wheel, -100 to 100; <code>left_motor.stop()</code>"),
+  ])}
+<pre>def main():
+    while True:
+        left_motor.spin(FORWARD, controller.axis3.position(), PERCENT)
+        right_motor.spin(FORWARD, controller.axis2.position(), PERCENT)
+        wait(20, MSEC)
+
+start(main)</pre>
+  <p>This is <b>tank drive</b>: W / S drive the left wheel, ↑ / ↓ the right wheel. Click the playground so the keys
+  drive (not the code). Press <b>Esc</b> to stop.</p>
+  ${keyTableHtml()}
 </section>
 
 <section>
