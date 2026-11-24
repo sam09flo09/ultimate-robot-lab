@@ -3,7 +3,8 @@
  * lock-step stepping during a race run, and the race panel in the Challenge tab.
  * The app calls into this from a few clearly marked `race` spots in src/ui/app.ts.
  */
-import type { RobotController, Sim, World } from "../core/types";
+import { DEFAULT_ROBOT, type RobotConfig, type RobotController, type Sim, type World } from "../core/types";
+import { configSummary, isDefaultConfig } from "../sim/robotConfig"; // builder
 import { h, ask, setText, esc } from "../ui/dom";
 import { createRaceTracker, formatRaceTime, getRace, medalFor, MEDAL_TEXT, type Medal, type RaceInfo, type RaceTracker } from "./race";
 import { createLockstep, trackController, type Lockstep, type TrackedController } from "./lockstep";
@@ -25,6 +26,8 @@ export interface RaceUi {
   /** True from "GO" until the run ends. */
   readonly racing: boolean;
   setWorld(world: World, worldId: string): void;
+  /** builder: the robot design in use (as the sim applies it). Best times are kept per world + design. */
+  setRobot(config: RobotConfig): void;
   /** Wrap the runner's controller (call when building the sim for a race world). */
   wrap(c: RobotController): RobotController;
   /** 3-2-1-GO. Resolves true at GO (immediately when skip), false if cancelled. Sim time does not move. */
@@ -60,6 +63,8 @@ export function createRaceUi(fieldBox: HTMLElement): RaceUi {
   let finishCb: (() => void) | null = null;
   let last: RaceOutcome | null = null;
   let record: RaceRecord = { best: null, runs: [] };
+  let worldId = ""; // builder
+  let robot: RobotConfig = { ...DEFAULT_ROBOT }; // builder
 
   // ---- HUD (on the field, above both canvases)
   const clock = h("div", { class: "race-clock", "aria-hidden": "true" }, "00:00.00");
@@ -94,19 +99,27 @@ export function createRaceUi(fieldBox: HTMLElement): RaceUi {
     get active() { return info !== null; },
     get racing() { return racing; },
 
-    setWorld(w, worldId) {
+    setWorld(w, wid) {
       ui.cancelCountdown();
       lock?.cancel();
       racing = false; last = null;
-      world = w;
+      world = w; worldId = wid; // builder
       info = getRace(w);
       hud.hidden = !info;
       if (!info) return;
-      key = raceKey(w, worldId);
+      key = raceKey(w, wid, robot); // builder: per robot design
       record = loadRecord(key);
       setText(clock, formatRaceTime(0));
       clock.classList.remove("done");
       showResult(null);
+      subText();
+    },
+
+    setRobot(cfg) { // builder
+      robot = { ...cfg };
+      if (!info || !world || racing) return;
+      key = raceKey(world, worldId, robot);
+      record = loadRecord(key);
       subText();
     },
 
@@ -185,7 +198,7 @@ export function createRaceUi(fieldBox: HTMLElement): RaceUi {
       if (time === null) {
         o = { finished: false, time: null, medal: null, newBest: false, previousBest: record.best, par: info.par };
       } else {
-        const r = recordRun(key, time);
+        const r = recordRun(key, time, undefined, undefined, configSummary(robot)); // builder: robot in history
         record = r.record;
         o = { finished: true, time, medal: medalFor(time, info.par), newBest: r.newBest, previousBest: r.previousBest, par: info.par };
       }
@@ -232,6 +245,9 @@ export function createRaceUi(fieldBox: HTMLElement): RaceUi {
         h("li", {}, "Time starts when your program starts, and is robot time — the Speed buttons don't change it."),
         h("li", {}, "The robot always goes back to the start before a race run (Reset before run is on)."),
         info.checkpoints.length ? h("li", {}, "Pass every checkpoint in order, then cross the finish.") : null));
+      box.append(h("p", { class: "race-robot muted" }, // builder
+        "Robot: ", h("b", {}, isDefaultConfig(robot) ? "standard robot" : configSummary(robot)),
+        " — each robot design keeps its own best time."));
       box.append(h("p", { class: "race-best" }, "Best: ", h("b", {}, record.best !== null ? formatRaceTime(record.best) : "no time yet"),
         record.best !== null && medalFor(record.best, info.par) ? h("span", { class: `race-medal ${medalFor(record.best, info.par)}` }, MEDAL_TEXT[medalFor(record.best, info.par)!]) : null));
       if (record.runs.length) {
@@ -240,6 +256,7 @@ export function createRaceUi(fieldBox: HTMLElement): RaceUi {
           const m = medalFor(r.t, info.par);
           const d = new Date(r.at);
           tb.append(h("tr", {}, h("td", {}, formatRaceTime(r.t)), h("td", {}, m ? MEDAL_TEXT[m] : ""),
+            h("td", { class: "muted race-hist-robot" }, r.robot ?? ""), // builder
             h("td", { class: "muted" }, `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`)));
         }
         box.append(tb);

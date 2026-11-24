@@ -35,6 +35,9 @@ import { renderVariables } from "../debug/panel"; // debugger
 import { createRaceUi } from "../race/ui"; // race
 import { createInputHub } from "../input"; // controller
 import { createControllerPanel } from "../input/panel"; // controller
+import { DEFAULT_ROBOT, type RobotConfig } from "../core/types"; // builder
+import { clampConfig, sameConfig } from "../sim/robotConfig"; // builder
+import { createRobotBuilder } from "../builder"; // builder
 
 type Mode = "blocks" | "python";
 type MsgKind = "ok" | "info" | "err";
@@ -95,6 +98,7 @@ export function startApp(): void {
   let world: World = playgrounds[0];
   let worldId = world.id;
   let customWorld: World | null = null;
+  let robotConfig: RobotConfig = { ...DEFAULT_ROBOT }; // builder: the student's robot design (saved in the project)
   let sim!: Sim;
   let runner!: PythonRunner;
   let unsubSim: (() => void) | null = null;
@@ -175,7 +179,8 @@ export function startApp(): void {
   // ------------------------------------------------------------ sim / runner
   function buildSim(): void {
     unsubSim?.();
-    sim = createSim(world);
+    sim = createSim(world, robotConfig); // builder: world.robotRules may override the design
+    race.setRobot(sim.state.config ?? DEFAULT_ROBOT); // builder: best times per world + robot design
     runner = createPythonRunner({
       controller: race.active ? race.wrap(sim.controller) : sim.controller, // race: counts pending motions for lock-step
       onLine: (line) => { pendingLine = line; },
@@ -441,6 +446,7 @@ export function startApp(): void {
     debugUIKey = ""; syncDebugUI(); // debugger
     worldBtn.disabled = on; modeBlocksBtn.disabled = on || !!lockedMode; modePythonBtn.disabled = on || !!lockedMode;
     ($("actBtn") as HTMLButtonElement).disabled = on;
+    ($("robotBtn") as HTMLButtonElement).disabled = on; // builder
     for (const id of ["mNew", "mOpen", "mTeacher"]) ($(id) as HTMLButtonElement).disabled = on;
     pyEditor.setReadOnly(on);
     safe(() => blocks.setReadOnly(on));
@@ -650,7 +656,9 @@ export function startApp(): void {
     if (w.background !== "plain" && w.gridSize) parts.push(`each square ${w.gridSize} mm`);
     if (w.hardware?.pen) parts.push("pen");
     if (w.hardware?.magnet) parts.push("magnet");
+    if (w.robotRules?.locked) parts.push("robot locked"); // builder
     setText($("worldMeta"), `${w.name} · ${parts.join(" · ")}`);
+    updateRobotBtn(); // builder
     if (!opts.offerStarter) return;
     const starter = starterFor(w);
     if (unchanged) {
@@ -734,6 +742,7 @@ export function startApp(): void {
       customWorld: worldId === "custom" ? customWorld : null,
       savedAt: new Date().toISOString(),
       activity: activity?.embed() ?? null,
+      robot: { ...robotConfig }, // builder
     };
   }
 
@@ -744,6 +753,7 @@ export function startApp(): void {
     if (p.worldId === "custom" && p.customWorld) { customWorld = p.customWorld; w = customWorld; }
     else w = getPlayground(p.worldId);
     const id = w ? p.worldId : playgrounds[0].id;
+    robotConfig = clampConfig(p.robot ?? DEFAULT_ROBOT); // builder (before setWorld builds the sim)
     setWorld(w ?? playgrounds[0], id, { offerStarter: false });
     projName.value = cleanName(p.name); updateTitle();
     pyEditor.setText(extra.pythonText ?? (p.mode === "python" ? p.python : starterFor(world)));
@@ -784,6 +794,7 @@ export function startApp(): void {
     projName.value = "My robot project"; updateTitle();
     pyEditor.setText(starterFor(world));
     safe(() => blocks.setState(blankBlocksState));
+    if (!sameConfig(robotConfig, DEFAULT_ROBOT) || robotConfig.name) { robotConfig = { ...DEFAULT_ROBOT }; safe(() => sim.setConfig(robotConfig)); race.setRobot(sim.state.config ?? DEFAULT_ROBOT); } // builder
     resetRobot(); clearOutput(); clearMsg(); clearHighlights();
     scheduleAutosave();
   }
@@ -1035,6 +1046,30 @@ export function startApp(): void {
     startImported(opened.activity, opened.warnings);
   }
   $("actBtn").addEventListener("click", showCatalogue);
+
+  // ------------------------------------------------------------ builder: Robot Builder
+  const robotBuilder = createRobotBuilder({
+    getWorld: () => world,
+    getConfig: () => robotConfig,
+    isRunning: () => running,
+    onApply: (c) => {
+      if (running) return;
+      robotConfig = { ...c };
+      safe(() => sim.setConfig(robotConfig));
+      race.setRobot(sim.state.config ?? DEFAULT_ROBOT);
+      resetRobot();
+      updateRobotBtn();
+      scheduleAutosave();
+      toast(`Robot updated${c.name ? `: ${c.name}` : ""}. The robot went back to the start.`);
+    },
+  });
+  function updateRobotBtn(): void {
+    const b = $("robotBtn");
+    const locked = !!world.robotRules?.locked;
+    b.classList.toggle("is-custom", !locked && !sameConfig(robotConfig, DEFAULT_ROBOT));
+    b.title = locked ? "Robot Builder (this playground locks the robot)" : "Robot Builder: design your robot (size, wheels, gears, motors, sensors)";
+  }
+  $("robotBtn").addEventListener("click", () => { if (!running) robotBuilder.open(); });
   $("mOpenAct").addEventListener("click", () => void openActivityFile());
 
   // teacher: Level / Activity switch + authoring form

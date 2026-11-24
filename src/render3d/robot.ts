@@ -6,7 +6,7 @@ import {
   BoxGeometry, BufferGeometry, Color, CylinderGeometry, ExtrudeGeometry, Group, Material, Mesh,
   MeshLambertMaterial, MeshPhongMaterial, Object3D, Shape,
 } from "three";
-import type { ColorName } from "../core/types";
+import type { ColorName, RobotConfig } from "../core/types";
 import { COLOR_HEX } from "../core/types";
 
 export const ROBOT_NOMINAL = 140;
@@ -46,6 +46,9 @@ export interface RobotModel {
   setMagnet(fitted: boolean, carrying: boolean): void;
   setWheelAngles(left: number, right: number): void;
   setCastShadow(on: boolean): void;
+  /** builder: show the robot design (wheel size, 4 motor housings, gear cog, sensor mount) and
+   *  spin the wheels in place while stalled. Call before setWheelAngles each frame. */
+  setDesign(cfg: RobotConfig | undefined, stalled: boolean): void;
   dispose(): void;
 }
 
@@ -108,10 +111,10 @@ export function buildRobot(high: boolean): RobotModel {
   // eye on the front face
   const ringG = G(new CylinderGeometry(14, 14, 4, seg));
   ringG.rotateX(Math.PI / 2);
-  add(group, ringG, paper, 0, EYE_HEIGHT, -BODY_L / 2 - 1);
+  const eyeRing = add(group, ringG, paper, 0, EYE_HEIGHT, -BODY_L / 2 - 1);
   const lensG = G(new CylinderGeometry(9, 9, 6, seg));
   lensG.rotateX(Math.PI / 2);
-  add(group, lensG, lens, 0, EYE_HEIGHT, -BODY_L / 2 - 2.5);
+  const eyeLens = add(group, lensG, lens, 0, EYE_HEIGHT, -BODY_L / 2 - 2.5);
 
   // wheels: axis along x, spun by rotation.x
   const wheelG = G(new CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, 16, high ? 24 : 12));
@@ -151,6 +154,22 @@ export function buildRobot(high: boolean): RobotModel {
   add(pen, capG, penCap, 0, 32, 0);
   pen.position.set(0, TOP_Y, 30);
   group.add(pen);
+
+  // builder: motor housings (shown for 4-motor robots) and a gear cog on top (geared robots)
+  const motorMat = M(new MeshLambertMaterial({ color: 0x6b635a }));
+  const motorG = G(new BoxGeometry(22, 26, 30));
+  const motors = new Group();
+  for (const [x, z] of [[-40, -40], [-40, 40], [40, -40], [40, 40]] as const) add(motors, motorG, motorMat, x, BODY_TOP + 13, z);
+  motors.visible = false;
+  group.add(motors);
+  const cogTorque = M(new MeshLambertMaterial({ color: 0xff6a1a }));
+  const cogSpeed = M(new MeshLambertMaterial({ color: 0x2f6fd6 }));
+  const cogG = G(new CylinderGeometry(15, 15, 6, 12));
+  const cog = add(group, cogG, cogTorque, 0, TOP_Y + 3, 36);
+  const toothG = G(new BoxGeometry(38, 6, 6));
+  const teeth = [0, 1, 2].map((i) => { const t = add(cog, toothG, cogTorque, 0, 0, 0); t.rotation.y = (i * Math.PI) / 3; return t; });
+  cog.visible = false;
+  let spin = 0;
 
   const steelColor = new Color(0xa7afb8);
   const carryColor = new Color(0xff8a47);
@@ -195,10 +214,26 @@ export function buildRobot(high: boolean): RobotModel {
     },
     setWheelAngles(left, right) {
       // roll forward (toward -z) = negative rotation about +x
-      wheels[0].rotation.x = -left;
-      wheels[1].rotation.x = -left;
-      wheels[2].rotation.x = -right;
-      wheels[3].rotation.x = -right;
+      wheels[0].rotation.x = -left - spin;
+      wheels[1].rotation.x = -left - spin;
+      wheels[2].rotation.x = -right - spin;
+      wheels[3].rotation.x = -right - spin;
+    },
+    setDesign(cfg, stalled) {
+      if (stalled) spin += 0.35; // builder: wheels slip against a too-heavy object
+      const scale = cfg ? cfg.size / ROBOT_NOMINAL : 1;
+      const k = cfg ? cfg.wheelDiameter / 100 : 1;
+      for (const w of wheels) { w.scale.setScalar(k); w.position.y = WHEEL_RADIUS * k; }
+      motors.visible = !!cfg && cfg.motors === 4;
+      cog.visible = !!cfg && cfg.gearRatio !== 1;
+      if (cfg && cfg.gearRatio !== 1) {
+        const m = cfg.gearRatio > 1 ? cogTorque : cogSpeed;
+        cog.material = m;
+        for (const t of teeth) t.material = m;
+      }
+      const ex = cfg ? cfg.sensorOffset / scale : 0;
+      eyeRing.position.x = ex;
+      eyeLens.position.x = ex;
     },
     setCastShadow(on) {
       for (const m of meshes) m.castShadow = on;

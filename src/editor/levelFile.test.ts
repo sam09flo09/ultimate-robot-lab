@@ -245,3 +245,23 @@ describe("race settings", () => {
     expect("race" in sanitizeWorld(base()).world).toBe(false);
   });
 });
+
+// builder: object mass and robot rules survive (clamped) round trips
+describe("builder fields", () => {
+  it("keeps mass (0.5..4, default 1 dropped) and robotRules (clamped)", () => {
+    const w = newBlankWorld();
+    const raw = {
+      ...w,
+      objects: [
+        { id: "a", shape: "box", x: 0, y: 0, size: 100, color: "RED", movable: true, pickable: false, mass: 9 },
+        { id: "b", shape: "disk", x: 300, y: 0, size: 80, color: "RED", movable: true, pickable: false, mass: 1 },
+      ],
+      robotRules: { locked: true, maxSize: 50, config: { size: 999, motors: 4 } },
+    };
+    const r = sanitizeWorld(JSON.parse(JSON.stringify(raw))).world;
+    expect(r.objects[0].mass).toBe(4);
+    expect(r.objects[1].mass).toBeUndefined();
+    expect(r.robotRules).toEqual({ locked: true, maxSize: 120, config: { size: 200, wheelDiameter: 100, gearRatio: 1, motors: 4, sensorOffset: 0 } });
+    expect(sanitizeWorld({ ...w, robotRules: { locked: "yes" } }).world.robotRules).toBeUndefined();
+  });
+});

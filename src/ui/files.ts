@@ -8,6 +8,7 @@ import { sanitizeWorld, levelFileText } from "./modules";
 import type { Activity } from "../core/activity";
 import { sanitizeActivity, sanitizeEmbedded, ACTIVITY_EXT } from "../activities/activityFile";
 import { getBuiltIn } from "../activities/builtins";
+import { clampConfig } from "../sim/robotConfig"; // builder
 
 export const PROJECT_EXT = ".robolab";
 export const LEVEL_EXT = ".robolab-level";
@@ -70,6 +71,7 @@ export function parseFileText(text: string, knownWorld: (id: string) => boolean)
       mode, python, blocks, worldId, customWorld,
       savedAt: typeof d.savedAt === "string" ? d.savedAt.slice(0, 40) : "",
       activity: sanitizeEmbedded(d.activity, getBuiltIn, warnings),
+      ...(isObj(d.robot) ? { robot: clampConfig(d.robot) } : {}), // builder: robot design, clamped to legal values
     },
   };
 }

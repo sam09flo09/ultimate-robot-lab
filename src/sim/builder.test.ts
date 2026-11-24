@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_ROBOT, type RobotConfig, type RobotController, type Sim, type World, type WorldObject } from "../core/types";
 import { clampConfig, configKey, createSim, effectiveConfig, robotStats } from "./index";
+import { getPlayground } from "../worlds";
 
 function makeWorld(over: Partial<World> = {}): World {
   return {
@@ -233,5 +234,33 @@ describe("robot builder: size and sensors", () => {
     const a = createSim(world, config), b = createSim(world, config);
     await run(a, prog, 60, 0.0173); await run(b, prog, 60, 0.0173);
     expect(a.state).toEqual(b.state);
+  });
+});
+
+describe("robot builder: Gear Lab", () => {
+  const pushProg = async (c: RobotController) => {
+    c.setDriveVelocity(100); c.setTurnVelocity(100);
+    await c.turnFor("LEFT", 90);
+    await c.driveFor("FORWARD", 700);
+    await c.turnFor("RIGHT", 90);
+    await c.driveFor("FORWARD", 2600);
+  };
+  it("the default robot stalls at the crate; a 2:1 geared robot pushes it into the bay", async () => {
+    const lab = getPlayground("gear-lab")!;
+    const weak = createSim(lab);
+    await run(weak, pushProg);
+    expect(weak.state.objects[0].x).toBe(-200);
+    expect(weak.evaluateGoals().every((g) => g.passed)).toBe(false);
+    const strong = createSim(lab, cfg({ gearRatio: 2 }));
+    await run(strong, pushProg);
+    expect(strong.evaluateGoals().every((g) => g.passed)).toBe(true);
+    // but on the straight, the geared robot is twice as slow
+    const t = async (c?: Partial<RobotConfig>) => {
+      const sim = createSim(lab, c);
+      sim.controller.setDriveVelocity(100);
+      await run(sim, (k) => k.driveFor("FORWARD", 2400));
+      return sim.state.time;
+    };
+    expect(await t(cfg({ gearRatio: 2 }))).toBeCloseTo(2 * (await t()), 1);
   });
 });

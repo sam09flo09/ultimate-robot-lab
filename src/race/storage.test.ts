@@ -110,3 +110,21 @@ describe("world keys", () => {
     expect(stableStringify({ b: 1, a: [{ d: 2, c: undefined }] })).toBe('{"a":[{"d":2}],"b":1}');
   });
 });
+
+// builder: best times are kept per world + robot design
+describe("best times per robot design", () => {
+  it("default robot keeps the old key; other designs get their own; history stores the design", async () => {
+    const { DEFAULT_ROBOT } = await import("../core/types");
+    const w = getPlayground("gear-lab")!;
+    expect(raceKey(w, "gear-lab", DEFAULT_ROBOT)).toBe("w:gear-lab");
+    const geared = { ...DEFAULT_ROBOT, gearRatio: 0.5 };
+    const k = raceKey(w, "gear-lab", geared);
+    expect(k).toBe("w:gear-lab|s140w100g1-2m2");
+    expect(raceKey(w, "gear-lab", { ...geared, sensorOffset: 20 })).toBe(k); // sensors don't change the race
+    const s = memStore();
+    recordRun(k, 2.1, 1, s, "140mm · gear 1:2");
+    recordRun("w:gear-lab", 3.1, 2, s);
+    expect(loadRecord(k, s)).toEqual({ best: 2.1, runs: [{ t: 2.1, at: 1, robot: "140mm · gear 1:2" }] });
+    expect(loadRecord("w:gear-lab", s).best).toBe(3.1);
+  });
+});

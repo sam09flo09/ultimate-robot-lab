@@ -105,3 +105,28 @@ motor spin first, and `motor.spin` cancels an unfinished `drive(...)`/`turn(...)
 | buttons X, Y, A, B | I, J, L, K |
 | L1 / L2, R1 / R2 | Q / Z, E / C |
 | Up / Down / Left / Right buttons | T / G / F / H |
+
+## Robot builder (🔧 Robot)
+
+Students design their robot in the Robot Builder; the design (`RobotConfig`) is saved in the project
+(`.robolab` → `robot`). The commands don't change — the same program drives differently:
+
+| Part | Choices | What it does |
+|---|---|---|
+| Size | 120–200 mm (standard 140) | Collision box. Fits through gaps ≥ size + ~10 mm. Wheels are size − 20 mm apart, so bigger robots turn slower. |
+| Wheels | 60, 80, 100 (standard), 130 mm | Bigger wheels go further per turn: faster, but weaker. |
+| Gear ratio | 3:1, 2:1, 1:1 (standard), 1:2, 1:3 | 3:1 = wheels turn 3× slower but push 3× harder (low gear on a bike). 1:3 = 3× faster, 3× weaker. |
+| Motors | 2 (standard) or 4 | 4 motors push twice as hard; top speed is the same. |
+| Sensor position | along the front edge | Moves the distance sensor and front eye left/right. |
+
+The formulas (100% velocity):
+
+- **Top speed** = 800 mm/s × (wheel ÷ 100) ÷ gear ratio
+- **Turn speed** = 360 °/s × (wheel ÷ 100) ÷ gear ratio × 120 ÷ (size − 20)
+- **Push strength** = (motors ÷ 2) × gear ratio × (100 ÷ wheel) — the standard robot is 1.
+
+Every object has a **mass** (default 1). If mass > push strength the robot stalls against it like a wall:
+`drive_for` ends early, the bumper is pressed, but it is not counted as a wall hit (the wheels spin).
+`drive_for` distances and `turn_for` angles stay exact — only how long they take changes.
+Level makers can set an object's mass (0.5–4) and **Robot rules**: lock the robot (everyone uses the
+standard robot, e.g. for fair races) or cap its size. Race best times are kept per robot design.

@@ -71,8 +71,8 @@ function reachable(w: World, clear: number) {
 }
 
 describe("PLAYGROUNDS", () => {
-  it("has 9 playgrounds (6 + 3 races) with unique ids and names", () => {
-    expect(PLAYGROUNDS.length).toBe(9);
+  it("has 10 playgrounds (6 + 3 races + Gear Lab) with unique ids and names", () => {
+    expect(PLAYGROUNDS.length).toBe(10);
     expect(new Set(PLAYGROUNDS.map((w) => w.id)).size).toBe(PLAYGROUNDS.length);
     expect(new Set(PLAYGROUNDS.map((w) => w.name)).size).toBe(PLAYGROUNDS.length);
   });
