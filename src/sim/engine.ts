@@ -2,7 +2,8 @@
  * The simulation core: robot motion, collisions, pushing, magnet, pen, path, zones.
  * Time advances only in step(); fixed substep of 1/120 s. Deterministic for a given dt sequence.
  */
-import type { ColorName, GoalResult, SimEvent, SimState, World, WorldObject } from "../core/types";
+import type { ColorName, GoalResult, RobotConfig, SimEvent, SimState, World, WorldObject } from "../core/types";
+import { effectiveConfig, robotStats } from "./robotConfig"; // builder
 import {
   type Body, type Hit, BOX, CIRCLE, clean, collide, makeBox, makeCircle, makeWallBody,
   normDeg, pointInZone, round6, setBoxAngle,
@@ -57,7 +58,7 @@ function objectBody(o: WorldObject): Body {
 export class Engine {
   readonly world: World;
   readonly state: SimState;
-  readonly half: number;          // robot half-size (half the side of its square footprint)
+  half: number;                   // robot half-size (half the side of its square footprint) — builder: set by applyConfig
   readonly halfW: number;
   readonly halfH: number;
   readonly hasPen: boolean;
@@ -74,7 +75,7 @@ export class Engine {
   private carryRel = 0;
 
   /** The robot's collision shape: an oriented square of side ROBOT_SIZE (= state.robotSize). */
-  private robotBox: Body;
+  private robotBox!: Body; // builder: rebuilt by applyConfig
   /** Penetration into walls/border the robot was left with after the last substep (normally 0). */
   private residual = 0;
   private hit: Hit = { nx: 0, ny: 0, depth: 0 };
@@ -100,7 +101,17 @@ export class Engine {
   private lastPathX = 0;
   private lastPathY = 0;
 
-  constructor(world: World) {
+  // builder: robot design and the physics derived from it (see sim/robotConfig.ts)
+  config!: RobotConfig;
+  private speedScale = 1;          // × wheel top speed (drive, wheels)
+  private turnScale = 1;           // × turn rate (wheel speed / track, relative to the default robot)
+  private trackWidth = TRACK_WIDTH;
+  private pushStrength = 1;
+  private sensorOffset = 0;        // mm right of centre along the front edge
+  private stallNow = false;        // builder: pushed against a too-heavy object this substep
+  private stalledUntil = -1;
+
+  constructor(world: World, config?: Partial<RobotConfig> | null) {
     this.world = world;
     this.half = ROBOT_SIZE / 2;
     this.halfW = world.width / 2;
@@ -109,7 +120,6 @@ export class Engine {
     this.hasMagnet = !!world.hardware?.magnet;
     this.needsSettle = world.goals.some(isEndStateGoal);
     this.wallBodies = world.walls.map((w) => makeWallBody(w.a, w.b, w.thickness));
-    this.robotBox = makeBox(0, 0, this.half, this.half, 0);
     this.state = {
       time: 0,
       robot: { x: 0, y: 0, heading: 0 },
@@ -125,7 +135,44 @@ export class Engine {
       distanceRay: null,
       visitedZones: [],
     };
+    this.setConfigFields(config); // builder
     this.restore();
+  }
+
+  // ------------------------------------------------------------ builder: robot design
+
+  /** builder: swap the robot design (clamped + world rules applied) and reset. */
+  applyConfig(config: Partial<RobotConfig> | null | undefined): void {
+    this.abort();
+    this.setConfigFields(config);
+    this.restore();
+  }
+
+  private setConfigFields(config: Partial<RobotConfig> | null | undefined): void {
+    const c = effectiveConfig(this.world, config);
+    const st = robotStats(c);
+    this.config = c;
+    this.half = c.size / 2;
+    this.speedScale = st.speedScale;
+    this.trackWidth = st.track;
+    this.turnScale = st.speedScale * (TRACK_WIDTH / st.track);
+    this.pushStrength = st.pushStrength;
+    this.sensorOffset = c.sensorOffset;
+    this.robotBox = makeBox(0, 0, this.half, this.half, 0);
+    this.state.robotSize = c.size;
+    this.state.config = { ...c };
+    this.state.stalled = false;
+  }
+
+  /** builder: can this robot push object i? (mass defaults to 1; the default robot pushes mass ≤ 1) */
+  private canPush(i: number): boolean {
+    return (this.state.objects[i].mass ?? 1) <= this.pushStrength + 1e-9;
+  }
+
+  /** builder: sensor mount point on the front edge (distance ray + front eye origin). */
+  sensorOrigin(ux: number, uy: number): { x: number; y: number } {
+    const r = this.state.robot, o = this.sensorOffset;
+    return { x: r.x + ux * this.half + uy * o, y: r.y + uy * this.half - ux * o };
   }
 
   // ------------------------------------------------------------ lifecycle
@@ -173,6 +220,7 @@ export class Engine {
     s.bumperPressed = false;
     s.distanceRay = null;
     s.visitedZones = [];
+    s.stalled = false; this.stalledUntil = -1; // builder
 
     this.objBodies = s.objects.map(objectBody);
     this.movable = s.objects.map((o) => o.movable || o.pickable);
@@ -344,12 +392,13 @@ export class Engine {
     let intended = 0, moved = 0; // moved = mm driven or degrees turned this substep
 
     let reverted = false;
+    this.stallNow = false; // builder
     if (m && m.kind === "wheels") {
       this.wheelMotion(m.left, m.right);
     } else {
       if (m) {
         if (m.kind === "driveFor" || m.kind === "drive") {
-          const v = (DRIVE_MM_PER_S_AT_100 * this.driveVel) / 100;
+          const v = (DRIVE_MM_PER_S_AT_100 * this.driveVel * this.speedScale) / 100; // builder: × speedScale
           let d = v * dt;
           if (m.kind === "driveFor" && d > m.remaining) d = m.remaining;
           if (d > 0) {
@@ -363,7 +412,7 @@ export class Engine {
             if (v <= 0) m.remaining = 0; // 0% velocity: end instead of hanging
           }
         } else {
-          const w = (TURN_DEG_PER_S_AT_100 * this.turnVel) / 100;
+          const w = (TURN_DEG_PER_S_AT_100 * this.turnVel * this.turnScale) / 100; // builder: × turnScale
           let a = w * dt;
           if (m.kind === "turnFor") {
             if (a > m.remaining) a = m.remaining;
@@ -446,6 +495,9 @@ export class Engine {
     this.penPoint(false);
     this.pathPoint(false);
     this.updateZones();
+    // builder: wheels "spin" against a too-heavy object — shown briefly by the renderers
+    if (this.stallNow && m) this.stalledUntil = s.time + 0.4;
+    s.stalled = s.time < this.stalledUntil;
   }
 
   /**
@@ -455,9 +507,10 @@ export class Engine {
    */
   private wheelMotion(leftPct: number, rightPct: number): void {
     const r = this.state.robot;
-    const vl = (DRIVE_MM_PER_S_AT_100 * leftPct) / 100, vr = (DRIVE_MM_PER_S_AT_100 * rightPct) / 100;
+    const k = this.speedScale; // builder
+    const vl = (DRIVE_MM_PER_S_AT_100 * leftPct * k) / 100, vr = (DRIVE_MM_PER_S_AT_100 * rightPct * k) / 100;
     const v = (vl + vr) / 2;               // mm/s along the heading
-    const w = (vl - vr) / TRACK_WIDTH;     // rad/s, clockwise positive (like heading)
+    const w = (vl - vr) / this.trackWidth; // rad/s, clockwise positive (like heading) — builder: track = size − 20
     const sweep = (Math.abs(v) + Math.abs(w) * this.half * Math.SQRT2) * SUBSTEP; // fastest corner
     const n = Math.max(1, Math.ceil(sweep / MAX_WHEEL_PIECE - 1e-9));
     const dt = SUBSTEP / n;
@@ -547,7 +600,7 @@ export class Engine {
       for (let it = 0; it < ITERATIONS; it++) {
         let pushed = false;
         for (let i = 0; i < n; i++) {
-          if (!this.movable[i] || i === this.carryIndex) continue;
+          if (!this.movable[i] || i === this.carryIndex || !this.canPush(i)) continue; // builder: too heavy → stuck
           if (collide(this.robotBox, bodies[i], hit)) {
             const d = hit.depth + 1e-4;
             this.moveObj(i, hit.nx * d, hit.ny * d);
@@ -564,6 +617,7 @@ export class Engine {
         if (collide(this.robotBox, bodies[i], hit)) {
           r.x -= hit.nx * hit.depth; r.y -= hit.ny * hit.depth;
           this.robotBox.x = r.x; this.robotBox.y = r.y;
+          if (!this.canPush(i) && hit.depth > 1e-6) this.stallNow = true; // builder
         }
       }
       this.awake.fill(0);
@@ -723,7 +777,8 @@ export class Engine {
     const r = this.state.robot;
     const rad = (r.heading * Math.PI) / 180;
     const ux = clean(Math.sin(rad)), uy = clean(Math.cos(rad));
-    return castRay(r.x + ux * this.half, r.y + uy * this.half, ux, uy, this.halfW, this.halfH, this.statics, this.objBodies, this.carryIndex);
+    const so = this.sensorOrigin(ux, uy); // builder: sensorOffset
+    return castRay(so.x, so.y, ux, uy, this.halfW, this.halfH, this.statics, this.objBodies, this.carryIndex);
   }
 
   private updateDistanceRay(): void {
@@ -732,7 +787,8 @@ export class Engine {
     if (!(t <= DISTANCE_MAX)) { s.distanceRay = null; return; }
     const rad = (r.heading * Math.PI) / 180;
     const ux = clean(Math.sin(rad)), uy = clean(Math.cos(rad));
-    const fx = r.x + ux * this.half, fy = r.y + uy * this.half;
+    const so = this.sensorOrigin(ux, uy); // builder: sensorOffset
+    const fx = so.x, fy = so.y;
     let ray = s.distanceRay;
     if (!ray) ray = s.distanceRay = { from: { x: 0, y: 0 }, to: { x: 0, y: 0 }, hit: true };
     ray.from.x = fx; ray.from.y = fy;
@@ -762,5 +818,7 @@ export class Engine {
 /** Index of the object in front (see sensors.objectInFront) for the engine's current pose. */
 export function objectInFrontIdx(e: Engine, ux: number, uy: number, pickableOnly: boolean): number {
   const r = e.state.robot;
-  return objectInFront(r.x, r.y, ux, uy, e.half, e.state.objects, e.carryIndex, FRONT_RANGE, pickableOnly);
+  // builder: the front eye sits at sensorOffset along the front edge (the magnet stays centred)
+  const off = pickableOnly ? 0 : e.config.sensorOffset;
+  return objectInFront(r.x + uy * off, r.y - ux * off, ux, uy, e.half, e.state.objects, e.carryIndex, FRONT_RANGE, pickableOnly);
 }
