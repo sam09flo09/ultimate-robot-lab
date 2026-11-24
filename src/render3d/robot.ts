@@ -49,6 +49,8 @@ export interface RobotModel {
   /** builder: show the robot design (wheel size, 4 motor housings, gear cog, sensor mount) and
    *  spin the wheels in place while stalled. Call before setWheelAngles each frame. */
   setDesign(cfg: RobotConfig | undefined, stalled: boolean): void;
+  /** match: team colour for the shell ("#D63B2F"), or null for the usual dark robot. Cheap when unchanged. */
+  setTint(color: string | null): void;
   dispose(): void;
 }
 
@@ -183,6 +185,8 @@ export function buildRobot(high: boolean): RobotModel {
     penColors.set(k, k === "NONE" ? new Color(0x9a9186) : new Color(COLOR_HEX[k]));
   }
 
+  const shellDefault = new Color(0x1f1c19); // match
+  let lastTint: string | null = null;        // match
   let lastBumper: boolean | null = null;
   let lastCarry: boolean | null = null;
   let lastPenKey = "";
@@ -234,6 +238,13 @@ export function buildRobot(high: boolean): RobotModel {
       const ex = cfg ? cfg.sensorOffset / scale : 0;
       eyeRing.position.x = ex;
       eyeLens.position.x = ex;
+    },
+    setTint(color) { // match
+      if (color === lastTint) return;
+      lastTint = color;
+      if (color) shell.color.set(color); else shell.color.copy(shellDefault);
+      orange.color.set(color ? 0xfffdf9 : 0xff6a1a);
+      orange.emissive.set(color ? 0x000000 : 0x5a1e00);
     },
     setCastShadow(on) {
       for (const m of meshes) m.castShadow = on;

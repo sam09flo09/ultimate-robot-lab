@@ -1,6 +1,7 @@
 /** Help panel content: a concise command card hand-written from docs/API.md. */
 
 import { keyTableHtml } from "../input/panel"; // controller
+import { KEYS_LEFT, KEYS_RIGHT } from "../input/player"; // match
 
 const row = (code: string, what: string) => `<tr><td><code>${code}</code></td><td>${what}</td></tr>`;
 const table = (rows: string[]) => `<table class="ref-table"><tbody>${rows.join("")}</tbody></table>`;
@@ -133,6 +134,34 @@ start(main)</pre>
   <p>This is <b>tank drive</b>: W / S drive the left wheel, ↑ / ↓ the right wheel. Click the playground so the keys
   drive (not the code). Press <b>Esc</b> to stop.</p>
   ${keyTableHtml()}
+</section>
+
+<!-- match -->
+<section>
+  <h3>Matches <span class="muted">(⚔ Match)</span></h3>
+  <p>Two robots on one field: <b>Team A (red)</b> is your project, <b>Team B (blue)</b> is a practice bot, a classmate's
+  <code>.robolab</code> file, a copy of your own program, or nobody. A match has two periods:</p>
+  <ol>
+    <li><b>Autonomous</b> (0–30 s, usually 15): <code>autonomous()</code> runs by itself. The team ahead at the end gets a bonus.</li>
+    <li><b>Driver control</b> (30–180 s, usually 60): <code>driver_control()</code> runs and you drive with the controller.</li>
+  </ol>
+<pre>def autonomous():
+    drivetrain.drive_for(FORWARD, 600, MM)
+
+def driver_control():
+    while True:
+        left_motor.spin(FORWARD, controller.axis3.position(), PERCENT)
+        right_motor.spin(FORWARD, controller.axis2.position(), PERCENT)
+        wait(20, MSEC)
+
+competition(autonomous, driver_control)</pre>
+  <p>Press <b>Run</b> to test it on your own: <code>competition</code> runs <code>autonomous()</code>, then <code>driver_control()</code>.
+  Matches always run at real speed. <b>Esc</b> pauses a match; an error in one team's program doesn't stop the other team.</p>
+  <p><b>Two players on one Chromebook:</b> one player takes the left half of the keyboard, the other the right half (or use gamepads).</p>
+  ${table([
+    row("Left hand", KEYS_LEFT.table.map((r) => `${r.keys} = ${r.control.replace(/ \(.*\)/, "")}`).join("<br>")),
+    row("Right hand", KEYS_RIGHT.table.map((r) => `${r.keys} = ${r.control.replace(/ \(.*\)/, "")}`).join("<br>")),
+  ])}
 </section>
 
 <!-- builder -->

@@ -11,6 +11,9 @@ import {
 import { createTouchPad } from "./touch";
 
 export { KEY_TABLE, knobToAxes, stickValue, isMappedKey } from "./layout";
+import { isTypingTarget } from "./typing";
+export { isTypingTarget } from "./typing";
+export { createPlayerInput, KEYS_LEFT, KEYS_RIGHT, PLAYER_INPUT_LABEL, halfKeys, nthPad, type PlayerController, type KeyHalf } from "./player"; // match
 
 /** Extra options (tests inject a clock and a fake gamepad list). */
 export interface InputHubExtras {
@@ -24,16 +27,6 @@ export interface RobotInputHub extends InputHub {
   gamepads(): string[];
   readonly active: boolean;
   readonly touchShown: boolean;
-}
-
-/** Is the keyboard focus somewhere the student types (where keys must not drive the robot)? */
-export function isTypingTarget(t: EventTarget | null): boolean {
-  const e = t as HTMLElement | null;
-  if (!e || typeof e.closest !== "function") return false;
-  if (e.isContentEditable) return true;
-  const tag = e.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
-  return !!e.closest(".cm-editor, .blocklyWidgetDiv, .blocklyDropDownDiv, .injectionDiv, .blocklySvg, [contenteditable=''], [contenteditable='true']");
 }
 
 export function createInputHub(opts: InputHubOptions & InputHubExtras): RobotInputHub {

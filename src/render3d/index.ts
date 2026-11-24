@@ -18,7 +18,7 @@ import {
   DirectionalLight, DynamicDrawUsage, Euler, HemisphereLight, InstancedMesh, Line, LineBasicMaterial,
   LinearMipmapLinearFilter, Material, Matrix4, Mesh, MeshBasicMaterial, MeshLambertMaterial,
   PCFShadowMap, PerspectiveCamera, Plane, PlaneGeometry, Quaternion, Raycaster, Scene, SphereGeometry,
-  SRGBColorSpace, Vector2, Vector3, WebGLRenderer,
+  SRGBColorSpace, Sprite, SpriteMaterial, Vector2, Vector3, WebGLRenderer,
 } from "three";
 import type { CameraMode, Quality, RenderOptions, Renderer3D, Renderer3DOptions } from "../core/modules";
 import type { ColorName, PenStroke, SimState, Vec, World, WorldObject } from "../core/types";
@@ -421,6 +421,122 @@ export function createRenderer3D(canvas: HTMLCanvasElement, opts: Renderer3DOpti
     robot.setCastShadow(high);
     arm3d.setCastShadow(high); // arm
     blob.visible = !high;
+    for (const x of extraSlots) { x.model.setCastShadow(high); x.arm.setCastShadow(high); } // match
+  }
+
+  // ------------------------------------------------------------ match: extra robots (team colours)
+  // One slot per extra robot, built on first use and reused every frame (no per-frame allocation).
+  interface TeamLabel { sprite: Sprite; tex: CanvasTexture; mat: SpriteMaterial; cnv: HTMLCanvasElement; key: string; }
+  interface ExtraSlot { model: RobotModel; arm: Arm3D; odo: WheelOdometry; blob: Mesh; label: TeamLabel; }
+  const extraSlots: ExtraSlot[] = [];
+  let mainLabel: TeamLabel | null = null;
+
+  function makeLabel(): TeamLabel {
+    const cnv = document.createElement("canvas");
+    cnv.width = cnv.height = 64;
+    const tex = new CanvasTexture(cnv);
+    tex.colorSpace = SRGBColorSpace;
+    const mat = new SpriteMaterial({ map: tex, depthTest: false, transparent: true });
+    const sprite = new Sprite(mat);
+    sprite.renderOrder = 10;
+    sprite.visible = false;
+    scene.add(sprite);
+    return { sprite, tex, mat, cnv, key: "" };
+  }
+  function paintLabel(l: TeamLabel, text: string, color: string): void {
+    const key = text + color;
+    if (l.key === key) return;
+    l.key = key;
+    const g = l.cnv.getContext("2d");
+    if (!g) return;
+    g.clearRect(0, 0, 64, 64);
+    g.beginPath(); g.arc(32, 32, 28, 0, Math.PI * 2);
+    g.fillStyle = color; g.fill();
+    g.lineWidth = 5; g.strokeStyle = "#FFFDF9"; g.stroke();
+    g.fillStyle = "#FFFDF9";
+    g.font = "700 34px ui-monospace, Menlo, Consolas, monospace";
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText(text.slice(0, 2), 32, 34);
+    l.tex.needsUpdate = true;
+  }
+  function placeLabel(l: TeamLabel, x: number, y: number, size: number): void {
+    l.sprite.visible = true;
+    l.sprite.position.set(x, size * 1.45 + 40, -y);
+    const k = Math.max(70, size * 0.55);
+    l.sprite.scale.set(k, k, 1);
+  }
+  function disposeLabel(l: TeamLabel): void { l.sprite.removeFromParent(); l.mat.dispose(); l.tex.dispose(); }
+
+  function makeSlot(): ExtraSlot {
+    const high = quality === "high";
+    const model = buildRobot(high);
+    model.setCastShadow(high);
+    scene.add(model.group);
+    const arm = new Arm3D(scene);
+    arm.setCastShadow(high);
+    const b = new Mesh(planeG, kit.blobMat);
+    b.renderOrder = 1;
+    scene.add(b);
+    return { model, arm, odo: new WheelOdometry(WHEEL_RADIUS, HALF_TRACK), blob: b, label: makeLabel() };
+  }
+  function disposeSlot(x: ExtraSlot): void {
+    x.model.dispose(); x.arm.dispose(); x.blob.removeFromParent(); disposeLabel(x.label);
+  }
+  /** Quality changed: the robot models depend on it. */
+  function rebuildExtras(): void {
+    const n = extraSlots.length;
+    for (const x of extraSlots) disposeSlot(x);
+    extraSlots.length = 0;
+    for (let i = 0; i < n; i++) extraSlots.push(makeSlot());
+  }
+
+  function drawExtras(world: World, o: RenderOptions, objects: WorldObject[]): void {
+    const extras = o.extraRobots;
+    const n = extras ? extras.length : 0;
+    while (extraSlots.length < n) extraSlots.push(makeSlot());
+    const hw = world.hardware;
+    const high = quality === "high";
+    for (let i = 0; i < extraSlots.length; i++) {
+      const slot = extraSlots[i];
+      const ex = i < n ? extras![i] : null;
+      slot.model.group.visible = !!ex;
+      slot.blob.visible = !!ex && !high;
+      slot.label.sprite.visible = !!ex;
+      if (!ex) { slot.arm.update(false, 0, 0, 0, 140, undefined); slot.odo.reset(); continue; }
+      const st = ex.state;
+      const p = st.robot;
+      const size = st.robotSize > 0 ? st.robotSize : DEFAULT_ROBOT;
+      const g = slot.model.group;
+      g.position.set(p.x, 0, -p.y);
+      g.rotation.set(0, headingToRotationY(p.heading), 0);
+      g.scale.setScalar(size / ROBOT_NOMINAL);
+      slot.odo.update(p.x, p.y, p.heading);
+      slot.model.setTint(ex.color);
+      slot.model.setDesign(st.config, !!st.stalled);
+      slot.model.setWheelAngles(slot.odo.left, slot.odo.right);
+      slot.model.setBumper(st.bumperPressed);
+      slot.model.setPen(!!(hw && hw.pen), st.penDown, st.penColor);
+      slot.model.setMagnet(!!(hw && hw.magnet), st.carrying !== null);
+      slot.arm.update(!!(hw && hw.arm), p.x, p.y, p.heading, size, st.arm);
+      if (slot.blob.visible) { slot.blob.position.set(p.x, 0.6, -p.y); slot.blob.scale.set(size * 1.6, 1, size * 1.6); }
+      paintLabel(slot.label, ex.label, ex.color);
+      placeLabel(slot.label, p.x, p.y, size);
+      // what its magnet carries rides at its front (the shared objects are synced from the main state)
+      if (st.carrying !== null) {
+        const e = objs.get(st.carrying);
+        const ob = e ? findObj(objects, st.carrying) : null;
+        if (e && ob) {
+          const d = size / 2 + ob.size / 2 + size * 0.06;
+          const hr = p.heading * DEG;
+          e.mesh.position.set(p.x + Math.sin(hr) * d, CARRY_HEIGHT * (size / ROBOT_NOMINAL), -(p.y + Math.cos(hr) * d));
+          e.mesh.rotation.set(0, headingToRotationY(p.heading), 0);
+        }
+      }
+    }
+  }
+  function findObj(objects: WorldObject[], id: string): WorldObject | null {
+    for (let i = 0; i < objects.length; i++) if (objects[i].id === id) return objects[i];
+    return null;
   }
 
   function rebuildKit() {
@@ -433,6 +549,7 @@ export function createRenderer3D(canvas: HTMLCanvasElement, opts: Renderer3DOpti
     kit = buildKit(quality === "high");
     robot = kit.robot;
     scene.add(robot.group);
+    rebuildExtras(); // match
     floor.material = kit.floorMat;
     table.material = kit.tableMat;
     blob.material = kit.blobMat;
@@ -854,6 +971,10 @@ export function createRenderer3D(canvas: HTMLCanvasElement, opts: Renderer3DOpti
     g.rotation.set(0, headingToRotationY(pose.heading), 0);
     g.scale.setScalar(robotScale);
     if (state) odo.update(pose.x, pose.y, pose.heading); else odo.reset();
+    const tintMain = o.extraRobots && o.extraRobots.length && o.mainRobotColor ? o.mainRobotColor : null; // match
+    robot.setTint(tintMain); // match
+    if (tintMain) { mainLabel ??= makeLabel(); paintLabel(mainLabel, "A", tintMain); placeLabel(mainLabel, pose.x, pose.y, size); }
+    else if (mainLabel) mainLabel.sprite.visible = false;
     robot.setDesign(state?.config, !!state?.stalled); // builder
     robot.setWheelAngles(odo.left, odo.right);
     robot.setBumper(!!(state && state.bumperPressed));
@@ -867,6 +988,7 @@ export function createRenderer3D(canvas: HTMLCanvasElement, opts: Renderer3DOpti
 
     // objects
     syncObjects(state ? state.objects : world.objects, state ? state.carrying : null, pose.x, pose.y, pose.heading, size);
+    if (o.extraRobots || extraSlots.length) drawExtras(world, o, state ? state.objects : world.objects); // match
 
     // overlays
     syncPath(state ? state.path : null, !!o.showPath);
@@ -949,6 +1071,9 @@ export function createRenderer3D(canvas: HTMLCanvasElement, opts: Renderer3DOpti
       pointers.clear();
       clearObjects();
       arm3d.dispose(); platforms3d.dispose(); // arm
+      for (const x of extraSlots) disposeSlot(x); // match
+      extraSlots.length = 0;
+      if (mainLabel) { disposeLabel(mainLabel); mainLabel = null; }
       pathRibbon.dispose();
       penRibbon.dispose();
       rayGeom.dispose();
