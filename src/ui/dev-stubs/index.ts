@@ -202,6 +202,8 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
   return {
     get running() { return running; },
     stop() { stopFlag = true; },
+    // debugger: the stub runtime can't pause
+    pause() {}, resume() {}, step() {}, get paused() { return false; }, variables: () => [],
     async run(source: string): Promise<RunResult> {
       running = true; stopFlag = false;
       let steps = 0, startCalled = false;

@@ -78,11 +78,23 @@ start(main)</pre>
   <p><code>import math</code> and <code>import random</code> work. A <code>while True:</code> loop is fine — press Stop to end it.</p>
 </section>
 
+<!-- debugger -->
+<section>
+  <h3>Pause, step and watch variables</h3>
+  <p><b>⤵ Step</b> starts your program paused on its first line. Press it again to run one line at a time —
+  the blue line is the one that runs next. <b>⏸ Pause</b> stops a running program where it is;
+  <b>▶ Continue</b> carries on. The <b>Variables</b> tab shows your variables and their values.</p>
+  <p>Typing in Python? After <code>drivetrain.</code> a list of commands pops up — use the arrow keys and Enter.
+  Rest the mouse on a command to see what it does.</p>
+</section>
+
 <section>
   <h3>Keyboard shortcuts</h3>
   ${table([
     row("Ctrl + Enter", "Run"),
     row("Esc", "Stop"),
+    row("F8", "Pause / Continue"),
+    row("F10", "Step: run the next line (starts Step through when stopped)"),
     row("Tab / Shift + Tab", "indent / unindent (in the Python editor)"),
     row("Esc, then Tab", "leave the Python editor with the keyboard"),
     row("Ctrl + S", "Save project"),

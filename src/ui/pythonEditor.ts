@@ -8,12 +8,14 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirro
 import { indentUnit, indentOnInput, bracketMatching, syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { python } from "@codemirror/lang-python";
 import { tags as t } from "@lezer/highlight";
+import { pythonAssist } from "../debug/pythonAssist"; // debugger: autocomplete + hover help
 
-export type LineKind = "run" | "err";
+export type LineKind = "run" | "err" | "paused";
 
 const setMark = StateEffect.define<{ line: number; kind: LineKind } | null>();
 const runDeco = Decoration.line({ class: "cm-run-line" });
 const errDeco = Decoration.line({ class: "cm-err-line" });
+const pausedDeco = Decoration.line({ class: "cm-paused-line" });
 
 const markField = StateField.define<DecorationSet>({
   create: () => Decoration.none,
@@ -22,7 +24,7 @@ const markField = StateField.define<DecorationSet>({
     for (const e of tr.effects) if (e.is(setMark)) {
       const v = e.value;
       if (!v || v.line < 1 || v.line > tr.state.doc.lines) deco = Decoration.none;
-      else deco = Decoration.set([(v.kind === "err" ? errDeco : runDeco).range(tr.state.doc.line(v.line).from)]);
+      else deco = Decoration.set([(v.kind === "err" ? errDeco : v.kind === "paused" ? pausedDeco : runDeco).range(tr.state.doc.line(v.line).from)]);
     }
     return deco;
   },
@@ -47,6 +49,7 @@ const theme = EditorView.theme({
   ".cm-activeLine": { backgroundColor: "rgba(233,224,210,.35)" },
   ".cm-activeLineGutter": { backgroundColor: "#EDE4D5" },
   ".cm-run-line": { backgroundColor: "#FFE1C9 !important", boxShadow: "inset 4px 0 0 #FF6A1A" },
+  ".cm-paused-line": { backgroundColor: "#DDEBFF !important", boxShadow: "inset 4px 0 0 #1F4FA8" },
   ".cm-err-line": { backgroundColor: "#FBE9E7 !important", boxShadow: "inset 4px 0 0 #B3261E" },
   "&.cm-focused": { outline: "none" },
   ".cm-content": { caretColor: "#0C0B0A" },
@@ -64,6 +67,8 @@ export interface PythonEditor {
 
 export function createPythonEditor(host: HTMLElement, opts: {
   doc: string; onChange?: () => void; onRun?: () => void; readOnly?: boolean; label: string;
+  /** debugger: autocomplete, hover help and signature hints (the main Python editor). */
+  assist?: boolean;
 }): PythonEditor {
   const ro = new Compartment();
   const roExt = (v: boolean): Extension => [EditorState.readOnly.of(v), EditorView.editable.of(!v), EditorView.editorAttributes.of({ class: v ? "cm-ro" : "" })];
@@ -77,6 +82,7 @@ export function createPythonEditor(host: HTMLElement, opts: {
         lineNumbers(), highlightActiveLineGutter(), highlightActiveLine(), drawSelection(), history(),
         indentUnit.of("    "), EditorState.tabSize.of(4), indentOnInput(), bracketMatching(),
         python(), syntaxHighlighting(style), theme, markField,
+        opts.assist ? pythonAssist() : [],
         keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap]),
         ro.of(roExt(!!opts.readOnly)),
         EditorView.contentAttributes.of({ "aria-label": opts.label, spellcheck: "false", autocapitalize: "off", autocorrect: "off" }),
