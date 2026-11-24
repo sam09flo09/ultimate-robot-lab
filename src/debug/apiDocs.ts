@@ -3,7 +3,7 @@
  * Written from docs/API.md and checked against src/runtime/names.ts (see apiDocs.test.ts):
  * every object, method, top-level function and constant the runtime installs has an entry here.
  */
-import { CONSTANTS, DIRECTION_CONSTS, UNIT_CONSTS, COLOR_CONSTS } from "../runtime/names";
+import { CONSTANTS, DIRECTION_CONSTS, UNIT_CONSTS, COLOR_CONSTS, CONTROLLER_AXES, CONTROLLER_BUTTONS } from "../runtime/names";
 
 export interface ApiDoc {
   /** How it's written: "drivetrain.drive_for", "wait", "FORWARD". */
@@ -22,6 +22,30 @@ export interface ApiDoc {
 const m = (name: string, signature: string, description: string, example: string, returns?: string): ApiDoc =>
   ({ name, signature, description, example, returns, kind: "method" });
 
+const AXIS_TEXT: Record<string, string> = {
+  axis1: "Right stick, left/right (right is positive)",
+  axis2: "Right stick, up/down (up is positive)",
+  axis3: "Left stick, up/down (up is positive)",
+  axis4: "Left stick, left/right (right is positive)",
+};
+const AXIS_EXAMPLE: Record<string, string> = {
+  axis1: "turn = controller.axis1.position()",
+  axis2: "right = controller.axis2.position()",
+  axis3: "speed = controller.axis3.position()",
+  axis4: "side = controller.axis4.position()",
+};
+
+function motorDocs(name: "left_motor" | "right_motor"): ApiDoc[] {
+  const axis = name === "left_motor" ? "axis3" : "axis2";
+  return [
+    m(name + ".spin", "(direction, velocity, units)", "Keep the wheel turning, FORWARD or REVERSE, at -100 to 100 PERCENT (no velocity = the set_velocity speed). A drivetrain command stops it.",
+      `for i in range(3):\n    ${name}.spin(FORWARD, controller.${axis}.position(), PERCENT)\n    wait(20, MSEC)`),
+    m(name + ".stop", "()", "Stop this wheel.", `${name}.stop()`),
+    m(name + ".set_velocity", "(velocity, units)", "Speed for spin(FORWARD) without a velocity, -100 to 100 PERCENT (starts at 50).", `${name}.set_velocity(75, PERCENT)\n${name}.spin(FORWARD)\n${name}.stop()`),
+    m(name + ".velocity", "(units)", "The velocity this motor was last told, in PERCENT.", `v = ${name}.velocity(PERCENT)`, "int"),
+  ];
+}
+
 export const OBJECT_DOCS: ApiDoc[] = [
   { name: "drivetrain", kind: "object", signature: "", description: "The robot's wheels: drive, turn and read the gyro.", example: "drivetrain.drive_for(FORWARD, 200, MM)" },
   { name: "distance", kind: "object", signature: "", description: "Distance sensor on the front of the robot.", example: "distance.get_distance(MM)" },
@@ -34,6 +58,12 @@ export const OBJECT_DOCS: ApiDoc[] = [
   { name: "brain", kind: "object", signature: "", description: "The robot's brain: its screen and timer.", example: "brain.screen.print(\"Hello\")" },
   { name: "brain.screen", kind: "object", signature: "", description: "Text on the Screen tab.", example: "brain.screen.print(\"Hello\")" },
   { name: "brain.timer", kind: "object", signature: "", description: "A stopwatch that counts robot time.", example: "brain.timer.time(SECONDS)" },
+  // driver control
+  { name: "controller", kind: "object", signature: "", description: "The driver's controller: two sticks (axis1 to axis4) and 12 buttons. Keyboard, gamepad or on-screen.", example: "controller.axis3.position()" },
+  ...CONTROLLER_AXES.map((a): ApiDoc => ({ name: "controller." + a, kind: "object", signature: "", description: AXIS_TEXT[a] + ", -100 to 100.", example: `controller.${a}.position()` })),
+  ...CONTROLLER_BUTTONS.map((b): ApiDoc => ({ name: "controller." + b, kind: "object", signature: "", description: `The ${b.slice(6)} button on the controller.`, example: `controller.${b}.pressing()` })),
+  { name: "left_motor", kind: "object", signature: "", description: "The left wheel's motor, for driver control.", example: "left_motor.spin(FORWARD, 50, PERCENT)" },
+  { name: "right_motor", kind: "object", signature: "", description: "The right wheel's motor, for driver control.", example: "right_motor.spin(FORWARD, 50, PERCENT)" },
 ];
 
 export const METHOD_DOCS: ApiDoc[] = [
@@ -68,6 +98,11 @@ export const METHOD_DOCS: ApiDoc[] = [
   m("brain.screen.clear_screen", "()", "Clear the screen.", "brain.screen.clear_screen()"),
   m("brain.timer.time", "(units)", "Robot time since the start (or the last clear), in SECONDS or MSEC.", "t = brain.timer.time(SECONDS)", "float"),
   m("brain.timer.clear", "()", "Restart the timer from 0.", "brain.timer.clear()"),
+  // driver control
+  ...CONTROLLER_AXES.map((a) => m(`controller.${a}.position`, "(units=PERCENT)", AXIS_TEXT[a] + ": a whole number from -100 to 100 (0 = stick in the middle).", AXIS_EXAMPLE[a], "int")),
+  ...CONTROLLER_BUTTONS.map((b) => m(`controller.${b}.pressing`, "()", `True while the ${b.slice(6)} button is held down.`, `if controller.${b}.pressing():\n    print("${b.slice(6)}")`, "bool")),
+  ...motorDocs("left_motor"),
+  ...motorDocs("right_motor"),
 ];
 
 export const FUNCTION_DOCS: ApiDoc[] = [

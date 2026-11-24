@@ -4,7 +4,9 @@
  * Wording follows friendly() in docs/reference/original-app-script.js.
  */
 import type { FriendlyError } from "../core/modules";
-import { API_OBJECTS, CONSTANTS, TOP_LEVEL, PY_NAMES, ALL_METHOD_NAMES, objectByClass, ownersOf } from "./names";
+import {
+  API_OBJECTS, CONSTANTS, TOP_LEVEL, PY_NAMES, ALL_METHOD_NAMES, CONTROLLER_AXES, CONTROLLER_BUTTONS, objectByClass, ownersOf,
+} from "./names";
 
 export interface ErrorInfo {
   type: string;      // Python exception class name
@@ -138,11 +140,33 @@ function nameTip(nm: string, source: string): string {
   return "Python doesn't know the name " + code(nm) + ". Check the spelling and capitals. If it is a variable, give it a value (like <code>" + esc(nm) + " = 0</code>) before you use it.";
 }
 
+const AXES_TEXT = "axis1 = right stick left/right, axis2 = right stick up/down, axis3 = left stick up/down, axis4 = left stick left/right";
+
+/** controller.<something it doesn't have> */
+function controllerAttrTip(attr: string): string {
+  const parts = [...CONTROLLER_AXES, ...CONTROLLER_BUTTONS] as string[];
+  const head = code("controller") + " has no " + code(attr) + ". ";
+  const guess = closestName(attr, parts);
+  if (guess && guess.kind === "case") return head + "Capitals matter: did you mean " + code("controller." + guess.name) + "?";
+  if (/^ax[ie]s/i.test(attr)) {
+    return head + "The controller has axis1 to axis4 (" + AXES_TEXT + "). Example: " + code("controller.axis3.position()") + ".";
+  }
+  if (/^button/i.test(attr)) {
+    return head + "Its buttons are: " + CONTROLLER_BUTTONS.join(", ") + ". Example: " + code("controller.buttonA.pressing()") + ".";
+  }
+  if (attr === "position") return head + "Read one of its sticks: " + code("controller.axis3.position()") + " (" + AXES_TEXT + ").";
+  if (attr === "pressing") return head + "Ask one of its buttons: " + code("controller.buttonA.pressing()") + ".";
+  if (guess) return head + "Did you mean " + code("controller." + guess.name) + "?";
+  return head + "The controller has axis1 to axis4 (use " + code(".position()") + ") and the buttons " +
+    CONTROLLER_BUTTONS.join(", ") + " (use " + code(".pressing()") + ").";
+}
+
 function attributeTip(raw: string): string {
   const m = raw.match(/'([^']+)' object has no attribute '([^']+)'/);
   const mod = raw.match(/module '([^']+)' has no attribute '([^']+)'/);
   if (m) {
     const [, cls, attr] = m;
+    if (cls === "Controller") return controllerAttrTip(attr);
     const obj = objectByClass(cls);
     if (obj) {
       const methods = Object.keys(obj.methods);

@@ -40,6 +40,10 @@ describe("results table", () => {
     expect(sortEntries(list, { key: "saved", dir: -1 })[0].id).toBe(3);
     expect(filterEntries(list, "passed").map((e) => e.id)).toEqual([3]);
     expect(filterEntries(list, "error").map((e) => e.id)).toEqual([1]);
+    // "needs a driver" sorts between no-start and timed out, and is filtered as not passed (not an error)
+    const more: Entry[] = [...list, { id: 4, r: row({ projectName: "Dee", status: "driver", statusText: "Needs a driver", verdict: "notpassed" }) }];
+    expect(sortEntries(more, { key: "status", dir: 1 }).map((e) => e.id)).toEqual([2, 3, 4, 1]);
+    expect(filterEntries(more, "notpassed").map((e) => e.id)).toEqual([2, 4]);
     expect(filterEntries(list, "all")).toHaveLength(3);
     const thead = document.createElement("thead");
     renderHead(thead, { key: "goals", dir: -1 }, handlers());

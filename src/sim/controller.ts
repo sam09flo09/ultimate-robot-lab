@@ -6,6 +6,7 @@ import { BRIGHTNESS, DISTANCE_FOUND, DISTANCE_MAX, floorColorAt } from "./sensor
 
 function num(v: number): number { return typeof v === "number" && isFinite(v) ? v : 0; }
 function clampPct(v: number): number { v = num(v); return v < 0 ? 0 : v > 100 ? 100 : v; }
+function clampSigned(v: number): number { v = num(v); return v < -100 ? -100 : v > 100 ? 100 : v === 0 ? 0 : v; }
 
 export function createController(e: Engine): RobotController {
   const fwd = () => {
@@ -92,10 +93,7 @@ export function createController(e: Engine): RobotController {
       if (on) e.magnetOn(); else e.magnetOff();
       return true;
     },
-    setWheelVelocities(_l: number, _r: number) {
-      // PLACEHOLDER — the sim agent implements differential drive here.
-      e.endMotion();
-    },
+    setWheelVelocities(l: number, r: number) { e.setWheels(clampSigned(l), clampSigned(r)); },
   };
   return c;
 }

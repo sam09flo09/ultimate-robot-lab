@@ -24,7 +24,7 @@ export const COLS: Array<{ key: SortKey; label: string }> = [
 
 const VERDICT_ORDER: Record<Verdict, number> = { passed: 0, notpassed: 1, error: 2 };
 export const VERDICT_TEXT: Record<Verdict, string> = { passed: "Passed", notpassed: "Not passed", error: "Error" };
-const STATUS_ORDER = { finished: 0, nostart: 1, timeout: 2, error: 3, invalid: 4 } as const;
+const STATUS_ORDER = { finished: 0, nostart: 1, driver: 2, timeout: 3, error: 4, invalid: 5 } as const;
 
 function sortValue(r: GradeResult, k: SortKey): string | number {
   switch (k) {

@@ -5,7 +5,8 @@
 import bundle from "../../public/vendor/skulpt.bundle.js?raw";
 import stdlib from "../../public/vendor/skulpt-stdlib.js?raw";
 import type { RobotController, ColorName } from "../core/types";
-import type { RunnerOptions } from "../core/modules";
+import type { RunnerOptions, ControllerInput, ControllerState } from "../core/modules";
+import { AXIS_NAMES, BUTTON_NAMES } from "../core/modules";
 
 export function loadSkulpt(): void {
   const g = globalThis as any;
@@ -93,4 +94,14 @@ export function recorder(ctl: RobotController): { opts: RunnerOptions; rec: Reco
       onScreen: (op) => rec.screen.push(op),
     },
   };
+}
+
+/** A controller input whose state tests change between waits (driver-control programs). */
+export function fakeInput(): { input: ControllerInput; state: ControllerState; reads: () => number } {
+  const state: ControllerState = {
+    axes: Object.fromEntries(AXIS_NAMES.map((a) => [a, 0])) as ControllerState["axes"],
+    buttons: Object.fromEntries(BUTTON_NAMES.map((b) => [b, false])) as ControllerState["buttons"],
+  };
+  let n = 0;
+  return { state, input: { read: () => { n++; return state; } }, reads: () => n };
 }

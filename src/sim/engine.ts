@@ -15,6 +15,11 @@ export const ROBOT_SIZE = 140;
 export const DRIVE_MM_PER_S_AT_100 = 800;
 export const TURN_DEG_PER_S_AT_100 = 360;
 export const PEN_WIDTH = 6;
+/** Driver control: distance between the two wheels (mm). Wheel rim speed at 100% = DRIVE_MM_PER_S_AT_100. */
+export const TRACK_WIDTH = 120;
+/** Wheel motion is split so no point of the robot moves more than this per collision pass (mm);
+ *  the same as the fastest drive() step, so spinning at full speed can't tunnel through walls. */
+const MAX_WHEEL_PIECE = 7;
 const MAX_STEP_DT = 0.5;          // ignore huge frame gaps (tab was hidden etc.)
 const PATH_SPACING = 10;
 const PEN_SPACING = 2;
@@ -31,7 +36,9 @@ type Motion =
   | (Resolver & { kind: "driveFor"; sign: number; remaining: number; total: number; x0: number; y0: number; deflected: boolean; blocked: number })
   | (Resolver & { kind: "turnFor"; sign: number; remaining: number; total: number; h0: number; rot0: number; blocked: number })
   | { kind: "drive"; sign: number }
-  | { kind: "turn"; sign: number };
+  | { kind: "turn"; sign: number }
+  /** driver control: independent wheel speeds in percent (-100..100), runs until superseded */
+  | { kind: "wheels"; left: number; right: number };
 
 interface Waiter extends Resolver { until: number; }
 
@@ -236,6 +243,17 @@ export class Engine {
   startDrive(sign: number): void { this.endMotion(); this.hasActed = true; this.motion = { kind: "drive", sign }; }
   startTurn(sign: number): void { this.endMotion(); this.hasActed = true; this.motion = { kind: "turn", sign }; }
 
+  /** Driver control: spin the wheels at these percents. 0,0 stops (like stop()). Updating an
+   *  existing wheel motion keeps it (no path/pen point forced on every call of a driver loop). */
+  setWheels(left: number, right: number): void {
+    if (left === 0 && right === 0) { this.endMotion(); return; }
+    const m = this.motion;
+    if (m && m.kind === "wheels") { m.left = left; m.right = right; return; }
+    this.endMotion();
+    this.hasActed = true;
+    this.motion = { kind: "wheels", left, right };
+  }
+
   wait(seconds: number): Promise<void> {
     this.hasActed = true;
     const until = this.state.time + (seconds > 0 ? seconds : 0);
@@ -325,50 +343,54 @@ export class Engine {
     const px = r.x, py = r.y, ph = r.heading, prot = this.rotation;
     let intended = 0, moved = 0; // moved = mm driven or degrees turned this substep
 
-    if (m) {
-      if (m.kind === "driveFor" || m.kind === "drive") {
-        const v = (DRIVE_MM_PER_S_AT_100 * this.driveVel) / 100;
-        let d = v * dt;
-        if (m.kind === "driveFor" && d > m.remaining) d = m.remaining;
-        if (d > 0) {
-          r.x += ux * d * m.sign;
-          r.y += uy * d * m.sign;
-          intended = d;
-          moved = d;
-        }
-        if (m.kind === "driveFor") {
-          m.remaining -= d;
-          if (v <= 0) m.remaining = 0; // 0% velocity: end instead of hanging
-        }
-      } else {
-        const w = (TURN_DEG_PER_S_AT_100 * this.turnVel) / 100;
-        let a = w * dt;
-        if (m.kind === "turnFor") {
-          if (a > m.remaining) a = m.remaining;
-          m.remaining -= a;
-          if (w <= 0) m.remaining = 0;
-        }
-        if (a > 0) {
-          const h = r.heading + a * m.sign;
-          r.heading = h >= 360 ? h - 360 : h < 0 ? h + 360 : h;
-          this.rotation += a * m.sign;
-          moved = a;
+    let reverted = false;
+    if (m && m.kind === "wheels") {
+      this.wheelMotion(m.left, m.right);
+    } else {
+      if (m) {
+        if (m.kind === "driveFor" || m.kind === "drive") {
+          const v = (DRIVE_MM_PER_S_AT_100 * this.driveVel) / 100;
+          let d = v * dt;
+          if (m.kind === "driveFor" && d > m.remaining) d = m.remaining;
+          if (d > 0) {
+            r.x += ux * d * m.sign;
+            r.y += uy * d * m.sign;
+            intended = d;
+            moved = d;
+          }
+          if (m.kind === "driveFor") {
+            m.remaining -= d;
+            if (v <= 0) m.remaining = 0; // 0% velocity: end instead of hanging
+          }
+        } else {
+          const w = (TURN_DEG_PER_S_AT_100 * this.turnVel) / 100;
+          let a = w * dt;
+          if (m.kind === "turnFor") {
+            if (a > m.remaining) a = m.remaining;
+            m.remaining -= a;
+            if (w <= 0) m.remaining = 0;
+          }
+          if (a > 0) {
+            const h = r.heading + a * m.sign;
+            r.heading = h >= 360 ? h - 360 : h < 0 ? h + 360 : h;
+            this.rotation += a * m.sign;
+            moved = a;
+          }
         }
       }
-    }
 
-    // Push the robot out of what it ran (or swung its corners) into. If it cannot get
-    // clear -- a turn in a gap narrower than its diagonal, a wedge-shaped corner -- the
-    // move is undone instead, so the square never ends up overlapping a wall.
-    const residual = this.resolveCollisions();
-    let reverted = false;
-    if (residual > this.residual + PENETRATION_SLOP) {
-      r.x = px; r.y = py; r.heading = ph; this.rotation = prot;
-      if (m && "remaining" in m) m.remaining += moved;
-      this.updateRobotBodies();
-      reverted = true;
-    } else {
-      this.residual = residual;
+      // Push the robot out of what it ran (or swung its corners) into. If it cannot get
+      // clear -- a turn in a gap narrower than its diagonal, a wedge-shaped corner -- the
+      // move is undone instead, so the square never ends up overlapping a wall.
+      const residual = this.resolveCollisions();
+      if (residual > this.residual + PENETRATION_SLOP) {
+        r.x = px; r.y = py; r.heading = ph; this.rotation = prot;
+        if (m && "remaining" in m) m.remaining += moved;
+        this.updateRobotBodies();
+        reverted = true;
+      } else {
+        this.residual = residual;
+      }
     }
     this.updateCarried();
     this.updateContacts();
@@ -424,6 +446,46 @@ export class Engine {
     this.penPoint(false);
     this.pathPoint(false);
     this.updateZones();
+  }
+
+  /**
+   * Differential drive for one substep: exact arc integration (constant wheel speeds), split into
+   * pieces short enough that collisions are resolved as finely as for drive()/turn(). Each piece is
+   * pushed out of walls like any other move, and undone if it can't get clear.
+   */
+  private wheelMotion(leftPct: number, rightPct: number): void {
+    const r = this.state.robot;
+    const vl = (DRIVE_MM_PER_S_AT_100 * leftPct) / 100, vr = (DRIVE_MM_PER_S_AT_100 * rightPct) / 100;
+    const v = (vl + vr) / 2;               // mm/s along the heading
+    const w = (vl - vr) / TRACK_WIDTH;     // rad/s, clockwise positive (like heading)
+    const sweep = (Math.abs(v) + Math.abs(w) * this.half * Math.SQRT2) * SUBSTEP; // fastest corner
+    const n = Math.max(1, Math.ceil(sweep / MAX_WHEEL_PIECE - 1e-9));
+    const dt = SUBSTEP / n;
+    for (let i = 0; i < n; i++) {
+      const px = r.x, py = r.y, ph = r.heading, prot = this.rotation;
+      const h0 = (ph * Math.PI) / 180;
+      const dth = w * dt;
+      if (dth === 0) {
+        const d = v * dt;
+        r.x += clean(Math.sin(h0)) * d;
+        r.y += clean(Math.cos(h0)) * d;
+      } else {
+        const R = v / w, h1 = h0 + dth;
+        r.x += R * (Math.cos(h0) - Math.cos(h1));
+        r.y += R * (Math.sin(h1) - Math.sin(h0));
+        const dDeg = (dth * 180) / Math.PI;
+        const h = ph + dDeg;
+        r.heading = h >= 360 ? h - 360 : h < 0 ? h + 360 : h;
+        this.rotation += dDeg;
+      }
+      const residual = this.resolveCollisions();
+      if (residual > this.residual + PENETRATION_SLOP) {
+        r.x = px; r.y = py; r.heading = ph; this.rotation = prot;
+        this.updateRobotBodies();
+      } else {
+        this.residual = residual;
+      }
+    }
   }
 
   // ------------------------------------------------------------ collision handling

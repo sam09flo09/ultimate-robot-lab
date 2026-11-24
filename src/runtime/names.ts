@@ -11,6 +11,17 @@ export const OTHER_CONSTS = ["UP", "DOWN", "BOOST", "DROP", "X", "Y"] as const;
 /** All constants. Each is a plain string equal to its own name. */
 export const CONSTANTS: readonly string[] = [...DIRECTION_CONSTS, ...UNIT_CONSTS, ...COLOR_CONSTS, ...OTHER_CONSTS];
 
+/** Driver control: the controller's axes and buttons (same order as core/modules AXIS_NAMES / BUTTON_NAMES). */
+export const CONTROLLER_AXES = ["axis1", "axis2", "axis3", "axis4"] as const;
+export const CONTROLLER_BUTTONS = [
+  "buttonA", "buttonB", "buttonX", "buttonY", "buttonUp", "buttonDown", "buttonLeft", "buttonRight",
+  "buttonL1", "buttonL2", "buttonR1", "buttonR2",
+] as const;
+/** Python class names of the controller parts: one class per axis/button so error messages can name it. */
+export const axisClass = (a: string) => "ControllerAxis" + a.slice(4);
+export const buttonClass = (b: string) => "Controller" + b[0].toUpperCase() + b.slice(1);
+export const MOTOR_CLASSES = { left_motor: "LeftMotor", right_motor: "RightMotor" } as const;
+
 export interface ApiObject {
   /** How students write it: "drivetrain", "brain.screen". */
   path: string;
@@ -77,10 +88,14 @@ export const API_OBJECTS: ApiObject[] = [
     path: "brain.timer", className: "Timer", example: "brain.timer.time(SECONDS)",
     methods: { time: "brain.timer.time(SECONDS)", clear: "brain.timer.clear()" },
   },
+  ...driverObjects(),
 ];
 
 /** Top-level names the runtime installs (besides constants). */
-export const TOP_LEVEL = ["drivetrain", "distance", "front_eye", "down_eye", "bumper", "location", "pen", "magnet", "brain", "wait", "start", "print"];
+export const TOP_LEVEL = [
+  "drivetrain", "distance", "front_eye", "down_eye", "bumper", "location", "pen", "magnet", "brain",
+  "controller", "left_motor", "right_motor", "wait", "start", "print",
+];
 
 /** Python builtins/keywords students commonly use (for case hints and typo suggestions). */
 export const PY_NAMES = [
@@ -89,9 +104,36 @@ export const PY_NAMES = [
   "elif", "else", "return", "break", "continue", "and", "or", "not", "in", "pass", "main",
 ];
 
+function driverObjects(): ApiObject[] {
+  const out: ApiObject[] = [];
+  const parts: Record<string, string> = {};
+  for (const a of CONTROLLER_AXES) parts[a] = `controller.${a}.position()`;
+  for (const b of CONTROLLER_BUTTONS) parts[b] = `controller.${b}.pressing()`;
+  out.push({ path: "controller", className: "Controller", example: "controller.axis3.position()", methods: parts });
+  for (const a of CONTROLLER_AXES) {
+    out.push({ path: "controller." + a, className: axisClass(a), example: `controller.${a}.position()`, methods: { position: `controller.${a}.position()` } });
+  }
+  for (const b of CONTROLLER_BUTTONS) {
+    out.push({ path: "controller." + b, className: buttonClass(b), example: `controller.${b}.pressing()`, methods: { pressing: `controller.${b}.pressing()` } });
+  }
+  for (const m of ["left_motor", "right_motor"] as const) {
+    out.push({
+      path: m, className: MOTOR_CLASSES[m], example: `${m}.spin(FORWARD, 50, PERCENT)`,
+      methods: {
+        spin: `${m}.spin(FORWARD, 50, PERCENT)`, stop: `${m}.stop()`,
+        set_velocity: `${m}.set_velocity(50, PERCENT)`, velocity: `${m}.velocity(PERCENT)`,
+      },
+    });
+  }
+  return out;
+}
+
+/** Objects whose "methods" are really sub-objects (brain.screen, controller.axis3). */
+const HAS_PARTS = new Set(["brain", "controller"]);
+
 /** method name -> objects that have it, e.g. "drive_for" -> ["drivetrain"] */
 export function ownersOf(method: string): ApiObject[] {
-  return API_OBJECTS.filter((o) => Object.prototype.hasOwnProperty.call(o.methods, method) && o.path !== "brain");
+  return API_OBJECTS.filter((o) => Object.prototype.hasOwnProperty.call(o.methods, method) && !HAS_PARTS.has(o.path));
 }
 
 export function objectByClass(className: string): ApiObject | undefined {
@@ -99,5 +141,5 @@ export function objectByClass(className: string): ApiObject | undefined {
 }
 
 export const ALL_METHOD_NAMES: string[] = Array.from(
-  new Set(API_OBJECTS.filter((o) => o.path !== "brain").flatMap((o) => Object.keys(o.methods))),
+  new Set(API_OBJECTS.filter((o) => !HAS_PARTS.has(o.path)).flatMap((o) => Object.keys(o.methods))),
 );
