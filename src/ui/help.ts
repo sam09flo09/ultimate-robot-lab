@@ -80,6 +80,26 @@ start(main)</pre>
   <p><code>import math</code> and <code>import random</code> work. A <code>while True:</code> loop is fine — press Stop to end it.</p>
 </section>
 
+<!-- flowchart -->
+<section>
+  <h3>Flowcharts</h3>
+  <p>Press <b>Flowchart</b> at the top to plan your program as shapes joined by arrows. It turns into Python that runs on the robot,
+  and the shape that is running lights up orange. <b>Show code</b> shows the Python.</p>
+  ${table([
+    row("Start / End (oval)", "where the program begins and stops"),
+    row("Action (rectangle)", "a robot command: drive, turn, wait, set a variable…"),
+    row("Input (slanted box)", "read a sensor or the controller into a variable, e.g. <code>distance → d</code>"),
+    row("Output (slanted box)", "show text or a variable on the robot screen or in the Steps log"),
+    row("Decision (diamond)", "a yes/no question, e.g. <code>distance &lt; 200?</code> — it has a <b>Yes</b> and a <b>No</b> arrow"),
+  ])}
+  <p>Drag a shape from the bar onto the grid (or tap it to add it under the selected shape). Drag from a shape's dot to another
+  shape to draw an arrow — or tap the dot, then tap the shape. Tap a shape to change it. <b>Delete</b> removes, <b>Ctrl+Z</b> undoes.</p>
+  <p><b>Loops:</b> point an arrow back <b>up</b> to an earlier shape. Ask the question in a diamond to decide when the loop ends —
+  one arrow carries on round the loop, the other leaves it. With no way out, the loop runs forever (great for driver control).
+  A loop can only be entered at its top and needs exactly one way out.</p>
+  <p>Stuck? Pick a <b>Template</b>. <b>Tidy up</b> lines the shapes up; 🖼 saves a picture for your engineering notebook.</p>
+</section>
+
 <!-- debugger -->
 <section>
   <h3>Pause, step and watch variables</h3>

@@ -7,7 +7,7 @@
 export interface NotebookRun {
   id: string;                 // short random id (for starring / notes)
   at: string;                 // ISO date-time the run ended
-  mode: "blocks" | "python";
+  mode: "blocks" | "python" | "flowchart";
   world: string;              // playground / challenge name
   /** finished | error | stopped | race (a timed race run). */
   result: "finished" | "error" | "stopped" | "race";

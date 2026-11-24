@@ -22,7 +22,7 @@ export interface NotebookHost {
   /** The sim state shown now (used for the field picture when there is no recorded run on this world). */
   state(): SimState | null;
   projectName(): string;
-  mode(): "blocks" | "python";
+  mode(): "blocks" | "python" | "flowchart";
   code(): string;
   activity(): PageActivity | null;
   /** Notebook data changed (autosave). */
@@ -30,7 +30,7 @@ export interface NotebookHost {
 }
 
 export interface RunRecord {
-  mode: "blocks" | "python";
+  mode: "blocks" | "python" | "flowchart";
   result: NotebookRun["result"];
   detail: string;
   goalsPassed: number;

@@ -52,7 +52,7 @@ function cleanRun(r: unknown): NotebookRun | null {
   const goalsTotal = num(r.goalsTotal, 0, 99);
   return {
     id, at,
-    mode: r.mode === "python" ? "python" : "blocks",
+    mode: r.mode === "python" || r.mode === "flowchart" ? r.mode : "blocks",
     world: cleanLine(r.world, MAX_SHORT),
     result: (RESULTS as readonly unknown[]).includes(r.result) ? r.result as NotebookRun["result"] : "finished",
     detail: cleanLine(r.detail, MAX_SHORT),

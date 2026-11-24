@@ -10,6 +10,7 @@ import { sanitizeActivity, sanitizeEmbedded, ACTIVITY_EXT } from "../activities/
 import { getBuiltIn } from "../activities/builtins";
 import { sanitizeNotebook } from "../notebook/data"; // notebook
 import { clampConfig } from "../sim/robotConfig"; // builder
+import { sanitizeChart } from "../flowchart/chart"; // flowchart
 
 export const PROJECT_EXT = ".robolab";
 export const LEVEL_EXT = ".robolab-level";
@@ -55,7 +56,14 @@ export function parseFileText(text: string, knownWorld: (id: string) => boolean)
   if (d.format !== "robot-lab-project") fail("This file is not a Robot Lab project, level or activity.");
   if (d.version !== 1) fail("This project was saved by a newer Robot Lab.");
   const warnings: string[] = [];
-  const mode = d.mode === "blocks" ? "blocks" : "python";
+  // flowchart: third mode; its chart is validated here (size caps, known shapes/commands only)
+  let mode: ProjectFile["mode"] = d.mode === "blocks" ? "blocks" : d.mode === "flowchart" ? "flowchart" : "python";
+  let flowchart: unknown | null = null;
+  if (mode === "flowchart") {
+    const fc = sanitizeChart(d.flowchart);
+    if (fc) { flowchart = fc.chart; warnings.push(...fc.warnings); }
+    else { warnings.push("The flowchart in this file couldn't be read, so the Python made from it was put in the Python editor."); mode = "python"; }
+  }
   let worldId = typeof d.worldId === "string" ? d.worldId.slice(0, 64) : "";
   let customWorld: World | null = null;
   if (worldId === "custom") customWorld = { ...cleanWorld(d.customWorld, warnings), id: "custom" };
@@ -70,6 +78,7 @@ export function parseFileText(text: string, knownWorld: (id: string) => boolean)
       format: "robot-lab-project", version: 1,
       name: cleanName(typeof d.name === "string" ? d.name : ""),
       mode, python, blocks, worldId, customWorld,
+      ...(mode === "flowchart" ? { flowchart } : {}), // flowchart
       savedAt: typeof d.savedAt === "string" ? d.savedAt.slice(0, 40) : "",
       activity: sanitizeEmbedded(d.activity, getBuiltIn, warnings),
       notebook: sanitizeNotebook(d.notebook, warnings), // notebook: validated, capped
@@ -172,7 +181,7 @@ const AUTOSAVE_KEY = "robot-lab-autosave-v1";
 const LEVEL_DRAFT_KEY = "robot-lab-level-draft-v1";
 
 /** What the autosave keeps: the project plus both editors' contents. */
-export interface AutosaveData { project: ProjectFile; pythonText: string; blocksState: unknown | null; }
+export interface AutosaveData { project: ProjectFile; pythonText: string; blocksState: unknown | null; /** flowchart */ flowState?: unknown | null; }
 
 export function readAutosave(knownWorld: (id: string) => boolean): AutosaveData | null {
   try {
@@ -186,6 +195,7 @@ export function readAutosave(knownWorld: (id: string) => boolean): AutosaveData 
       project: parsed.project,
       pythonText: typeof d.pythonText === "string" ? d.pythonText.slice(0, MAX_CODE) : parsed.project.python,
       blocksState: isObj(d.blocksState) ? d.blocksState : parsed.project.blocks,
+      flowState: sanitizeChart(d.flowState)?.chart ?? parsed.project.flowchart ?? null, // flowchart
     };
   } catch { return null; }
 }

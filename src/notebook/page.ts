@@ -15,7 +15,7 @@ export interface PageInput {
   notebook: NotebookData;
   projectName: string;
   worldName: string;
-  mode: "blocks" | "python";
+  mode: "blocks" | "python" | "flowchart";
   code: string;
   /** Field picture with the path (data URL), or null. */
   fieldImage: string | null;
@@ -61,7 +61,7 @@ export function starredRuns(nb: NotebookData): { n: number; run: NotebookRun }[]
 
 const titleOf = (inp: PageInput) => inp.notebook.title || inp.projectName || "My robot project";
 const dateOf = (inp: PageInput) => inp.notebook.date || inp.today;
-const modeWord = (m: PageInput["mode"]) => (m === "blocks" ? "Blocks (Python made from the blocks)" : "Python");
+const modeWord = (m: PageInput["mode"]) => (m === "blocks" ? "Blocks (Python made from the blocks)" : m === "flowchart" ? "Flowchart (Python made from the flowchart)" : "Python");
 
 /** Multi-line student text → escaped HTML paragraphs (line breaks kept). */
 function paras(s: string): string {
