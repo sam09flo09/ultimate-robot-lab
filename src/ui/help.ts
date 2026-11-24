@@ -129,6 +129,17 @@ start(main)</pre>
   ])}
 </section>
 
+<!-- notebook -->
+<section>
+  <h3>Engineering notebook page</h3>
+  <p>Every time you press <b>Run</b>, Robot Lab records the test run. Press <b>📓</b> (next to Show code) or
+  <b>File → Notebook page…</b>, then type your name and answer the four questions. Star ☆ the runs you want on the page
+  and add a one-line note to each, like “changed the turn to 85°”.</p>
+  <p><b>Print / Save as PDF</b> shows the page; press Print and choose <b>Save as PDF</b> to keep it in Drive, or print it
+  and glue it into your notebook. <b>Copy as text</b> is for a notebook in Google Docs. Your notes are saved in your project
+  file and are never sent anywhere.</p>
+</section>
+
 <section>
   <h3>Saving and turning in</h3>
   <p><b>File → Save</b> makes a <code>.robolab</code> file. Save it to Google Drive, then attach it to your

@@ -34,7 +34,7 @@
   <h2>The short version</h2>
   <div class="card">
     <ul>
-      <li><b>No accounts.</b> Students never enter a name, email, password or school ID.</li>
+      <li><b>No accounts.</b> Students never enter an email, password or school ID. The only place for a name is the optional engineering notebook page, which stays in their own project file.</li>
       <li><b>No data collection.</b> Robot Lab has no analytics, no tracking, no advertising, no cookies, and no third-party scripts.</li>
       <li><b>Nothing is uploaded.</b> Programs run in the browser. Robot Lab never sends student code, progress or files anywhere.</li>
       <li><b>Students control their files.</b> Work is saved only when a student chooses <i>File → Save</i>. The file goes wherever they put it, for example their own Google Drive, and they turn it in through Google Classroom like any other assignment.</li>
@@ -47,14 +47,15 @@
   <table>
     <tr><th>What</th><th>Why</th></tr>
     <tr><td>The current project (code, blocks, chosen playground)</td><td>Autosave, so work survives a closed tab or a dead battery</td></tr>
+    <tr><td>Engineering notebook notes (the name the student types on the notebook page, their reflection answers, a log of their last 20 test runs with small path pictures and notes)</td><td>So the student can print or copy a notebook page later. Kept inside the project autosave and the <code>.robolab</code> file only; printing and "Copy as text" happen on the Chromebook</td></tr>
     <tr><td>Guided-activity progress (steps done, hints shown, quiz answers)</td><td>So a student can pick up where they left off</td></tr>
     <tr><td>Display preferences (speed, text size, contrast, 2D/3D, sound on/off)</td><td>Convenience</td></tr>
     <tr><td>A teacher's in-progress challenge draft</td><td>Autosave in the challenge maker</td></tr>
     <tr><td>The app's own files (offline cache)</td><td>So the app keeps working without internet</td></tr>
   </table>
   <p>Project files (<code>.robolab</code>) contain the student's code, the project name they typed, the playground,
-  and any activity progress. They don't contain names, emails or device identifiers, unless a student types
-  one into their code or project name.</p>
+  any activity progress, and any engineering-notebook notes. They don't contain emails or device identifiers, and contain a
+  name only if the student types one (on the notebook page, or into their code or project name).</p>
 
   <h2>Hosting</h2>
   <p>Robot Lab is a static website: plain files with no database and no server-side code. Like any website,
@@ -68,7 +69,7 @@
       <tr><th>Address to allow</th><td><code>https://sam09flo09.github.io/ultimate-robot-lab/</code> (domain <code>sam09flo09.github.io</code>), the only domain the app needs</td></tr>
       <tr><th>Other domains</th><td>None. No CDNs, fonts, analytics or APIs are loaded from elsewhere.</td></tr>
       <tr><th>Install</th><td>Optional. Chrome can install it as an app (a Progressive Web App) from the address bar. No Chrome Web Store listing, extension or admin-console install is needed.</td></tr>
-      <tr><th>Permissions</th><td>None requested: no camera, microphone, location, notifications or clipboard access.</td></tr>
+      <tr><th>Permissions</th><td>None requested: no camera, microphone, location or notifications. The clipboard is only written to when a student presses "Copy as text" on the notebook page; it is never read.</td></tr>
       <tr><th>Offline</th><td>A service worker caches about 3 MB of app files after the first load (the 3D view uses WebGL2, built into Chrome; no plug-ins).</td></tr>
       <tr><th>Files</th><td>Students open and save files with the standard ChromeOS file picker. File types: <code>.robolab</code> (project), <code>.robolab-level</code> (challenge), <code>.robolab-activity</code> (lesson). Opened files are checked and cleaned before use, so a damaged or tampered file can't break the app.</td></tr>
       <tr><th>Source</th><td>Public, for anyone to review: <a href="https://github.com/sam09flo09/ultimate-robot-lab">github.com/sam09flo09/ultimate-robot-lab</a></td></tr>

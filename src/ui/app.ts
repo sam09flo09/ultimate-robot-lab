@@ -35,6 +35,7 @@ import { renderVariables } from "../debug/panel"; // debugger
 import { createRaceUi } from "../race/ui"; // race
 import { createInputHub } from "../input"; // controller
 import { createControllerPanel } from "../input/panel"; // controller
+import { createNotebook, isEmptyNotebook, buildText, type NotebookController, type PageActivity } from "../notebook"; // notebook
 
 type Mode = "blocks" | "python";
 type MsgKind = "ok" | "info" | "err";
@@ -118,6 +119,8 @@ export function startApp(): void {
   let activity: ActivityPanel | null = null;
   let lockedMode: Mode | null = null;
   const runPrints: string[] = [];
+  let notebook: NotebookController | null = null; // notebook: engineering notebook page (src/notebook)
+  let nbSteps = 0; // notebook: statements logged in the current run
   const previous = readAutosave(knownWorld); // last session's project, offered via "Restore last project"
 
   const renderer2d: Renderer = createRenderer(canvas);
@@ -179,7 +182,7 @@ export function startApp(): void {
     runner = createPythonRunner({
       controller: race.active ? race.wrap(sim.controller) : sim.controller, // race: counts pending motions for lock-step
       onLine: (line) => { pendingLine = line; },
-      onLog: (e) => { pendingLogs.push(e); if (e.kind === "print" && runPrints.length < 500) runPrints.push(String(e.text)); },
+      onLog: (e) => { pendingLogs.push(e); if (e.kind === "step") nbSteps++; /* notebook */ if (e.kind === "print" && runPrints.length < 500) runPrints.push(String(e.text)); },
       onScreen: (op) => {
         if (op.kind === "clear") { screenLines.length = 0; screenLines.push(""); }
         else if (op.kind === "newline") screenLines.push("");
@@ -461,7 +464,7 @@ export function startApp(): void {
 
   // debugger: stepThrough starts paused; race: countdown:false skips 3-2-1-GO (so does stepping through)
   async function run(runOpts: { stepThrough?: boolean; countdown?: boolean } = {}): Promise<void> {
-    if (running || isDialogOpen() || isCatalogueOpen() || !$("teacher").hidden || grading?.busy) return; // grading: Skulpt is global
+    if (running || isDialogOpen() || notebook?.isOpen() /* notebook */ || isCatalogueOpen() || !$("teacher").hidden || grading?.busy) return; // grading: Skulpt is global
     if (typeof (window as unknown as { Sk?: unknown }).Sk === "undefined") {
       showMsg("err", "The Python engine did not load. Reload the page (it works offline once it has loaded one time).");
       return;
@@ -475,6 +478,7 @@ export function startApp(): void {
     setRunning(true);
     focusField(); // controller: keys drive the robot, not the (read-only) editor
     runPrints.length = 0;
+    nbSteps = 0; // notebook
     if (race.active) { // race: 3-2-1-GO (no sim time passes), then start the clock with the program
       const go = await race.countdown(runOpts.countdown === false || !!runOpts.stepThrough);
       if (!go || !running) { setRunning(false); showMsg("info", "Race cancelled."); return; }
@@ -505,6 +509,7 @@ export function startApp(): void {
       clearHighlights();
       showMsg("info", race.outcomeHtml(raceOut) + (result.status === "stopped" ? " (Program stopped.)" : ""));
     } else finishMessage(result);
+    safe(() => recordNotebookRun(result, raceOut)); // notebook: test-run log
     if (activity?.active) {
       const goals = safe(() => sim.evaluateGoals()) ?? [];
       const st = sim.state;
@@ -553,6 +558,29 @@ export function startApp(): void {
       else extra = ` Challenge: <b>${n} of ${goals.length}</b> goals done — see the Challenge tab.`;
     }
     showMsg("ok", `Program finished. The robot ended ${where}, facing ${esc(facingText(world, st.robot.heading))}.${extra}`);
+  }
+
+  // notebook: one entry in the engineering notebook's test-run log per run
+  function recordNotebookRun(result: RunResult, raceOut: ReturnType<typeof race.end>): void {
+    if (!notebook) return;
+    const goals = safe(() => sim.evaluateGoals()) ?? [];
+    const st = sim.state;
+    const final = (world.background === "numberGrid" ? `square ${squareText(world, st.robot.x, st.robot.y)}` : `x ${Math.round(st.robot.x)}, y ${Math.round(st.robot.y)}`)
+      + `, facing ${facingText(world, st.robot.heading)}`;
+    let kind: "finished" | "error" | "stopped" | "race", detail: string;
+    if (result.status === "error") { kind = "error"; detail = result.error.type + (result.error.line ? ` on line ${result.error.line}` : ""); }
+    else if (raceOut) {
+      kind = "race";
+      detail = raceOut.finished && raceOut.time !== null
+        ? `Race: ${raceOut.time.toFixed(2)} s${raceOut.medal ? ` (${raceOut.medal})` : ""}${raceOut.newBest ? ", new best" : ""}`
+        : "Race: did not finish";
+    } else if (result.status === "stopped") { kind = "stopped"; detail = "Stopped"; }
+    else { kind = "finished"; detail = result.startCalled ? "Finished" : "Finished (main() never started)"; }
+    notebook.record({
+      mode, result: kind, detail, final,
+      goalsPassed: goals.filter((g) => g.passed).length, goalsTotal: goals.length,
+      steps: result.status === "finished" ? result.steps : nbSteps,
+    });
   }
 
   function stop(): void {
@@ -734,6 +762,7 @@ export function startApp(): void {
       customWorld: worldId === "custom" ? customWorld : null,
       savedAt: new Date().toISOString(),
       activity: activity?.embed() ?? null,
+      notebook: notebook && !isEmptyNotebook(notebook.data()) ? notebook.data() : null, // notebook
     };
   }
 
@@ -761,6 +790,7 @@ export function startApp(): void {
     mode = p.mode;
     applyModeUI();
     renderWorldMenu();
+    notebook?.load(p.notebook ?? null); // notebook
     if (p.activity) activity?.start(p.activity.activity, { progress: p.activity.progress, applyStep: false, review: !!extra.activityReview });
     else if (activity?.active) activity.leave();
     scheduleAutosave();
@@ -784,6 +814,7 @@ export function startApp(): void {
     projName.value = "My robot project"; updateTitle();
     pyEditor.setText(starterFor(world));
     safe(() => blocks.setState(blankBlocksState));
+    notebook?.load(null); // notebook
     resetRobot(); clearOutput(); clearMsg(); clearHighlights();
     scheduleAutosave();
   }
@@ -1163,6 +1194,27 @@ export function startApp(): void {
     ctlPanel.update(hub.read(), { gamepads: hub.gamepads(), touch: hub.touchShown, running });
   }
 
+  // ------------------------------------------------------------ notebook: engineering notebook page (src/notebook)
+  notebook = createNotebook({
+    createRenderer,
+    world: () => world,
+    worldName: () => (worldId === "custom" ? "Challenge: " : "") + world.name,
+    state: () => sim.state,
+    projectName: () => cleanName(projName.value),
+    mode: () => mode,
+    code: () => (mode === "blocks" ? safeGetPython() : pyEditor.getText()),
+    activity: (): PageActivity | null => {
+      const e = activity?.embed();
+      if (!e) return null;
+      const done = new Set(e.progress.completed);
+      return { title: e.activity.title, standards: e.activity.standards.slice(0, 20), current: e.progress.stepIndex,
+        steps: e.activity.steps.map((s) => ({ title: s.title, done: done.has(s.id) })) };
+    },
+    changed: () => scheduleAutosave(),
+  });
+  $("mNotebook").addEventListener("click", () => notebook?.open());
+  $("nbBtn").addEventListener("click", () => notebook?.open());
+
   // ------------------------------------------------------------ keyboard
   document.addEventListener("keydown", (e) => {
     if (e.defaultPrevented || isDialogOpen()) return;
@@ -1218,6 +1270,9 @@ export function startApp(): void {
     // activities
     startActivity: (id: string) => { const a = findActivity(id); if (a) startActivity(a); return !!a; },
     activityState: () => activity?.state() ?? null,
+    // notebook
+    notebook: () => notebook?.data() ?? null, openNotebook: () => notebook?.open(),
+    notebookPrint: () => notebook?.openPrintView(), notebookText: async () => (notebook ? buildText(await notebook.pageInput()) : ""),
     // controller
     controller: () => hub.read(), controllerUsed: () => onControllerUsed(),
     driving: () => ({ driverRun, speed: runSpeed(), sources: hub.sources(), touch: hub.touchShown, active: hub.active }),

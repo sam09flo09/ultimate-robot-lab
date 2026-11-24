@@ -12,6 +12,8 @@
  */
 import type { World, SimState, RobotController, ColorName, RobotConfig } from "./types";
 import type { Activity, ActivityProgress } from "./activity";
+import type { NotebookData } from "../notebook/types"; // notebook
+export type { NotebookData, NotebookRun, NotebookInclude } from "../notebook/types"; // notebook
 
 // ---------------------------------------------------------------- render
 
@@ -224,6 +226,9 @@ export interface ProjectFile {
   /** Optional: the guided activity this project belongs to, with the student's progress,
    *  so a teacher opening a turned-in file sees which steps were completed. */
   activity?: { activity: Activity; progress: ActivityProgress } | null;
+  /** notebook: engineering-notebook notes (student name, reflections, recorded test runs).
+   *  Stays in the file / browser only; see src/notebook. Missing = none. */
+  notebook?: NotebookData | null;
 }
 
 /** What teachers share: a challenge file (".robolab-level"). */
