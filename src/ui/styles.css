@@ -386,3 +386,61 @@ kbd { font-size: 11px; color: var(--gray); margin-left: auto; padding-left: 16px
 .race-dnf { color: var(--red); font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .race-cd-n { animation: none; } }
 :root[data-contrast="high"] .race-hud { background: #000; }
+
+/* ---------------------------------------------------------------- controller (driver control) — src/input */
+.fieldbox:focus { outline: none; }
+.fieldbox:focus-visible { outline: 3px solid var(--orange); outline-offset: 2px; border-radius: 8px; }
+.fieldbox .celebrate { z-index: 8; } /* above the on-screen controller */
+.btn-pad { font-size: 17px; padding: 4px 8px; }
+.btn-pad[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+.drive-chip { display: inline-flex; align-items: center; gap: 4px; min-height: 30px; padding: 3px 10px; border-radius: 999px; background: #E8F0FE; color: #1F4FA8; border: 1px solid #B9CCF2; font: 600 13px var(--body); white-space: nowrap; }
+/* five tabs in the narrow rail: tighter tabs, and the row scrolls sideways rather than clipping (Large/Larger text) */
+.tabs { overflow-x: auto; scrollbar-width: none; }
+.tabs [role="tab"] { padding: 8px 2px; font-size: 13px; flex: 1 0 auto; }
+.tabs #tabCtl { flex: 0 0 auto; padding: 8px 4px; font-size: 15px; }
+.tabs #tabCtl .tab-ctl-text { display: none; }
+/* on-screen controller: bottom band of the field, above both canvases (and the race HUD's corner), below dialogs */
+.touch-host { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; pointer-events: none; }
+.tpad { --tp-stick: clamp(84px, 15vw, 116px); --tp-btn: 44px; display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; padding: 8px; pointer-events: none; user-select: none; -webkit-user-select: none; }
+.tpad-side { display: flex; flex-direction: column; gap: 6px; }
+.tpad-right { align-items: flex-end; }
+.tpad-row { display: flex; align-items: flex-end; gap: 8px; }
+.tpad-shoulders { display: flex; gap: 6px; }
+.tpad-btn { pointer-events: auto; touch-action: none; width: var(--tp-btn); height: var(--tp-btn); border-radius: 50%; border: 2px solid rgba(12,11,10,.35); background: rgba(255,253,249,.6); color: var(--ink); font: 700 14px var(--body); padding: 0; cursor: pointer; display: grid; place-items: center; -webkit-tap-highlight-color: transparent; }
+.tpad-shoulders .tpad-btn { border-radius: 10px; width: 52px; height: 36px; }
+.tpad-btn.on { background: var(--orange); border-color: var(--deep); color: var(--ink); }
+.tpad-cross { display: grid; grid-template: repeat(3, calc(var(--tp-btn) * .78)) / repeat(3, calc(var(--tp-btn) * .78)); place-items: center; }
+.tpad-cross .up { grid-area: 1 / 2; } .tpad-cross .left { grid-area: 2 / 1; } .tpad-cross .right { grid-area: 2 / 3; } .tpad-cross .down { grid-area: 3 / 2; }
+.tpad-stick { pointer-events: auto; touch-action: none; position: relative; width: var(--tp-stick); height: var(--tp-stick); border-radius: 50%; background: rgba(255,253,249,.45); border: 2px solid rgba(12,11,10,.3); cursor: grab; flex: 0 0 auto; }
+.tpad-stick.on { background: rgba(255,225,201,.6); border-color: var(--deep); cursor: grabbing; }
+.tpad-knob { position: absolute; left: 50%; top: 50%; width: 46%; height: 46%; margin: -23% 0 0 -23%; border-radius: 50%; background: rgba(12,11,10,.55); box-shadow: 0 2px 6px rgba(12,11,10,.3); pointer-events: none; }
+.tpad-stick.on .tpad-knob { background: var(--deep); }
+:root[data-contrast="high"] .tpad-btn, :root[data-contrast="high"] .tpad-stick { background: rgba(255,255,255,.9); border-color: #000; }
+@media (max-height: 700px) and (min-width: 761px) { .tpad { --tp-stick: 84px; --tp-btn: 38px; padding: 4px; } .tpad-shoulders .tpad-btn { height: 30px; width: 44px; } }
+/* Controller tab */
+.ctl { padding: 6px 2px; font-size: 13px; }
+.ctl-pic { background: #fff; border: 1px solid var(--sand); border-radius: 14px; padding: 8px 10px 10px; }
+.ctl-sh { display: flex; gap: 4px; }
+.ctl-gap { flex: 1; }
+.ctl-main { display: flex; justify-content: space-around; gap: 8px; margin-top: 6px; }
+.ctl-col { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.ctl-stick { width: 72px; height: 72px; border-radius: 50%; border: 2px solid var(--sand); background: var(--well); display: grid; place-items: center; }
+.ctl-stick i { width: 16px; height: 16px; border-radius: 50%; background: var(--deep); transition: transform 60ms linear; }
+.ctl-cross { display: grid; grid-template: repeat(3, 22px) / repeat(3, 22px); place-items: center; }
+.ctl-cross .ctl-b:nth-child(1) { grid-area: 1 / 2; } .ctl-cross .ctl-b:nth-child(2) { grid-area: 2 / 1; }
+.ctl-cross .ctl-b:nth-child(3) { grid-area: 2 / 3; } .ctl-cross .ctl-b:nth-child(4) { grid-area: 3 / 2; }
+.ctl-b { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 3px; border-radius: 6px; border: 1px solid var(--sand); background: var(--well); font: 700 11px var(--mono); color: var(--gray); }
+.ctl-b.on { background: var(--orange); border-color: var(--deep); color: var(--ink); }
+.ctl-axes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 8px 0 4px; }
+.ctl-axes div { background: #fff; border: 1px solid var(--sand); border-radius: 8px; padding: 2px 6px; text-align: center; }
+.ctl-axes dt { font: 600 10.5px var(--mono); color: var(--gray); }
+.ctl-axes dd { margin: 0; font: 700 15px var(--mono); font-variant-numeric: tabular-nums; }
+.ctl-pressed { margin: 4px 2px; font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.ctl-pad { margin: 6px 2px; font-weight: 600; }
+.ctl-hint, .ctl-note { margin: 4px 2px; font-size: 12.5px; }
+.ctl-h { margin: 10px 2px 4px; font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--deep-text); }
+.ctl-keys th { text-align: left; font: 600 11px var(--mono); color: var(--gray); padding: 3px 4px; border-bottom: 1px solid var(--sand); }
+.ctl-keys td { font-size: 12.5px; }
+.ctl-keys td:first-child { white-space: normal; }
+.ctl-keys kbd, .help-body .ctl-keys kbd { font-size: 12px; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .ctl-stick i { transition: none; } }

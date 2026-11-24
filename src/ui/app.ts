@@ -33,6 +33,8 @@ import { createGradingPanel, type GradingPanel } from "../grading/panel"; // gra
 import type { VarView } from "../core/modules"; // debugger
 import { renderVariables } from "../debug/panel"; // debugger
 import { createRaceUi } from "../race/ui"; // race
+import { createInputHub } from "../input"; // controller
+import { createControllerPanel } from "../input/panel"; // controller
 
 type Mode = "blocks" | "python";
 type MsgKind = "ok" | "info" | "err";
@@ -125,6 +127,13 @@ export function startApp(): void {
     onSwitch: () => { fitCanvas(); needDraw = true; },
   });
   const race = createRaceUi(fieldBox); // race: clock overlay, countdown, lock-step stepping, Challenge-tab panel
+  // controller: driver-control input (keyboard + gamepad + on-screen touch controller), one hub for the app
+  const touchHost = h("div", { class: "touch-host", id: "touchHost" });
+  fieldBox.append(touchHost);
+  fieldBox.tabIndex = -1; // controller: runs move keyboard focus here so the keys drive the robot
+  const hub = createInputHub({ keyTarget: window, touchHost });
+  let driverRun = false; // controller: this run has read the controller → real speed, chip, touch pad
+  const runSpeed = () => (driverRun ? 1 : speed); // controller: driver programs always run at 1×
 
   // ------------------------------------------------------------ editors
   // Autosave on every change — but never overwrite the last session's project with an untouched
@@ -179,6 +188,7 @@ export function startApp(): void {
         pendingScreen = screenLines;
       },
       onPause: (info) => { pendingLine = info.line; pendingVars = info.vars; }, // debugger
+      input: hub, onControllerUsed: () => onControllerUsed(), // controller
     });
     unsubSim = sim.onEvent(onSimEvent);
     celebrated = false;
@@ -226,15 +236,15 @@ export function startApp(): void {
     // debugger: the sim (and the race clock) are frozen while the program is paused
     if (running && !runner.paused && race.active) {
       // race: lock-step substeps so the finish time doesn't depend on speed or frame rate
-      race.advance(Math.min(document.hidden ? 2 : 0.1, realDt) * speed);
+      race.advance(Math.min(document.hidden ? 2 : 0.1, realDt) * runSpeed()); // controller: runSpeed
       needDraw = true;
     } else if (running && !runner.paused) {
       if (document.hidden) {
         // rAF is paused: we are on the timer fallback (which Chrome throttles). Catch up in ≤0.1 s chunks.
         realDt = Math.min(realDt, 2);
-        while (realDt > 1e-6) { const d = Math.min(0.1, realDt); safe(() => sim.step(d * speed)); realDt -= d; }
+        while (realDt > 1e-6) { const d = Math.min(0.1, realDt); safe(() => sim.step(d * runSpeed())); realDt -= d; } // controller: runSpeed
       } else {
-        safe(() => sim.step(Math.min(0.1, realDt) * speed));
+        safe(() => sim.step(Math.min(0.1, realDt) * runSpeed())); // controller: runSpeed
       }
       needDraw = true;
     }
@@ -251,6 +261,7 @@ export function startApp(): void {
     // debugger: live variables ~4×/s while running (only when the tab is showing)
     varsTimer += frameDt;
     if (running && !runner.paused && varsTimer > 0.25 && !$("panelVars").hidden) { varsTimer = 0; pendingVars = safe(() => runner.variables()) ?? null; }
+    tickControllerPanel(frameDt); // controller: Controller tab live picture
     schedule();
   }
   let statusDirty = true;
@@ -393,7 +404,7 @@ export function startApp(): void {
   $("celClose").addEventListener("click", () => { $("celebrate").hidden = true; });
 
   // ------------------------------------------------------------ tabs
-  const tabIds = ["tabLog", "tabScreen", "tabGoals", "tabVars"]; // debugger: + Variables
+  const tabIds = ["tabLog", "tabScreen", "tabGoals", "tabVars", "tabCtl"]; // debugger: + Variables; controller: + Controller
   function selectTab(id: string, focus = false): void {
     for (const t of tabIds) {
       const b = $(t), on = t === id;
@@ -404,6 +415,7 @@ export function startApp(): void {
     }
     if (id === "tabGoals") { lastGoalsKey = ""; renderGoals(); }
     if (id === "tabVars" && running) pendingVars = safe(() => runner.variables()) ?? null; // debugger
+    syncController(); // controller: the hub listens while the Controller tab is open
   }
   function markTabDot(id: string): void {
     const b = $(id);
@@ -413,6 +425,7 @@ export function startApp(): void {
     const b = $(id);
     b.addEventListener("click", () => selectTab(id));
     b.addEventListener("keydown", (e) => {
+      if (e.defaultPrevented) return; // controller: arrows are driving keys while the hub is listening
       if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
         e.preventDefault();
         selectTab(tabIds[(i + (e.key === "ArrowRight" ? 1 : tabIds.length - 1)) % tabIds.length], true);
@@ -431,6 +444,8 @@ export function startApp(): void {
     for (const id of ["mNew", "mOpen", "mTeacher"]) ($(id) as HTMLButtonElement).disabled = on;
     pyEditor.setReadOnly(on);
     safe(() => blocks.setReadOnly(on));
+    if (!on) endDriverRun(); // controller
+    syncController(); // controller
     if (on) { last = performance.now(); schedule(); }
   }
 
@@ -458,6 +473,7 @@ export function startApp(): void {
     if (autoReset.checked || race.active) resetRobot(); // race: always reset before a race run
     celebrated = false; $("celebrate").hidden = true;
     setRunning(true);
+    focusField(); // controller: keys drive the robot, not the (read-only) editor
     runPrints.length = 0;
     if (race.active) { // race: 3-2-1-GO (no sim time passes), then start the clock with the program
       const go = await race.countdown(runOpts.countdown === false || !!runOpts.stepThrough);
@@ -1086,6 +1102,67 @@ export function startApp(): void {
   }
   $("tTabGrade").addEventListener("click", () => teacherTab("grade"));
 
+  // ------------------------------------------------------------ controller (driver control, src/input)
+  const driveChip = $("driveChip"), padToggle = $("padToggle") as HTMLButtonElement, panelCtl = $("panelCtl");
+  const ctlPanel = createControllerPanel($("ctlBox"));
+  const TOUCH_KEY = "robot-lab-touchpad-v1";
+  let touchPref: "on" | "off" | null = null; // null = automatic (show on touch screens during driver runs)
+  try { const v = localStorage.getItem(TOUCH_KEY); if (v === "on" || v === "off") touchPref = v; } catch { /* ignore */ }
+  const touchDevice = (() => {
+    try { return matchMedia("(pointer: coarse)").matches || (navigator.maxTouchPoints ?? 0) > 0; } catch { return false; }
+  })();
+  const speedTitles = speedBtns.map((b) => b.title);
+  let hintShown = false, ctlTimer = 0;
+  const SOURCE_NAMES = { keyboard: "Keyboard", gamepad: "Gamepad", touch: "Touch" } as const;
+
+  /** Hub listens while a program runs or the Controller tab is open; touch pad + chip follow the run. */
+  function syncController(): void {
+    hub.setActive(running || !panelCtl.hidden);
+    const showTouch = touchPref === "on" || (touchPref !== "off" && driverRun && touchDevice);
+    hub.showTouchControls(showTouch);
+    padToggle.setAttribute("aria-pressed", String(showTouch));
+    padToggle.title = showTouch ? "Hide the on-screen controller" : "Show on-screen controller";
+    driveChip.hidden = !(running && driverRun);
+    if (!driveChip.hidden) setText(driveChip, "🎮 Driving · " + hub.sources().map((s) => SOURCE_NAMES[s]).join(" + "));
+  }
+  hub.onChange(syncController);
+
+  function onControllerUsed(): void {
+    if (driverRun || !running) return;
+    driverRun = true;
+    for (const b of speedBtns) { b.disabled = true; b.title = "Driver programs run at real speed"; }
+    $("speedSeg").title = "Driver programs run at real speed";
+    if (!hintShown) { hintShown = true; toast("Drive with W A S D and the arrow keys — press Esc to stop", 5000); }
+    focusField();
+    syncController();
+  }
+  function endDriverRun(): void {
+    if (!driverRun) return;
+    driverRun = false;
+    speedBtns.forEach((b, i) => { b.disabled = false; b.title = speedTitles[i]; });
+    $("speedSeg").title = "";
+  }
+  /** Move keyboard focus off the code editor (and off the now-hidden Run button) onto the playground. */
+  function focusField(): void {
+    const a = document.activeElement as HTMLElement | null;
+    if (!a || a === document.body || a === runBtn || a.hidden || a.closest(".col-code")) {
+      fieldBox.focus({ preventScroll: true });
+    }
+  }
+  padToggle.addEventListener("click", () => {
+    touchPref = hub.touchShown ? "off" : "on";
+    try { localStorage.setItem(TOUCH_KEY, touchPref); } catch { /* ignore */ }
+    syncController();
+  });
+  /** Controller tab: live picture ~15×/s while it is showing (called from the frame loop). */
+  function tickControllerPanel(dt: number): void {
+    if (panelCtl.hidden) return;
+    ctlTimer += dt;
+    if (ctlTimer < 1 / 15) return;
+    ctlTimer = 0;
+    ctlPanel.update(hub.read(), { gamepads: hub.gamepads(), touch: hub.touchShown, running });
+  }
+
   // ------------------------------------------------------------ keyboard
   document.addEventListener("keydown", (e) => {
     if (e.defaultPrevented || isDialogOpen()) return;
@@ -1141,5 +1218,8 @@ export function startApp(): void {
     // activities
     startActivity: (id: string) => { const a = findActivity(id); if (a) startActivity(a); return !!a; },
     activityState: () => activity?.state() ?? null,
+    // controller
+    controller: () => hub.read(), controllerUsed: () => onControllerUsed(),
+    driving: () => ({ driverRun, speed: runSpeed(), sources: hub.sources(), touch: hub.touchShown, active: hub.active }),
   };
 }
