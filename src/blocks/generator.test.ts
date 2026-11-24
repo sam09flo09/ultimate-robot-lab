@@ -4,7 +4,9 @@ import * as Blockly from "blockly";
 import { generateProgram } from "./generator";
 import { HAT_TYPE } from "./definitions";
 import { loadState, saveState } from "./workspace";
-import { buildToolbox } from "./toolbox";
+import { buildToolbox, searchableBlocks, TANK_DRIVE_STARTER, ARCADE_DRIVE_STARTER } from "./toolbox";
+import { AXIS_OPTIONS, BUTTON_OPTIONS } from "./definitions";
+import { AXIS_NAMES, BUTTON_NAMES } from "../core/modules";
 
 type J = Record<string, unknown>;
 const num = (v: number) => ({ shadow: { type: "math_number", fields: { NUM: v } } });
@@ -268,8 +270,8 @@ describe("toolbox", () => {
   const names = (hw: { pen: boolean; magnet: boolean }) =>
     ((buildToolbox(hw) as unknown as { contents: { name: string }[] }).contents).map((c) => c.name);
   it("hides Pen and Magnet when the world has no such hardware", () => {
-    expect(names({ pen: false, magnet: false })).toEqual(["Drivetrain", "Sensing", "Looks", "Control", "Operators", "Variables", "My Blocks"]);
-    expect(names({ pen: true, magnet: true })).toEqual(["Drivetrain", "Sensing", "Pen", "Magnet", "Looks", "Control", "Operators", "Variables", "My Blocks"]);
+    expect(names({ pen: false, magnet: false })).toEqual(["Drivetrain", "Sensing", "Controller", "Looks", "Control", "Operators", "Variables", "My Blocks"]);
+    expect(names({ pen: true, magnet: true })).toEqual(["Drivetrain", "Sensing", "Controller", "Pen", "Magnet", "Looks", "Control", "Operators", "Variables", "My Blocks"]);
   });
   it("every toolbox block (and starter) can be created headless", () => {
     const tb = buildToolbox({ pen: true, magnet: true }) as unknown as { contents: { contents?: J[] }[] };
@@ -279,5 +281,151 @@ describe("toolbox", () => {
       const { kind: _k, ...state } = it;
       expect(() => Blockly.serialization.blocks.append(state as unknown as Blockly.serialization.blocks.State, ws)).not.toThrow();
     }
+  });
+});
+
+// Driver control (docs/API.md "Driver control: controller and motors").
+// These check generated Python only; running it needs the controller/motor runtime.
+describe("driver control blocks", () => {
+  const axis = (a: string): J => ({ type: "robot_controller_axis", fields: { AXIS: a } });
+  const arith = (op: string, a: J, b: J): J => ({ type: "math_arithmetic", fields: { OP: op }, inputs: { A: { block: a }, B: { block: b } } });
+  const starterPy = (stack: J) => one(stack);
+
+  const S: [J, string][] = [
+    [{ type: "robot_motor_spin", inputs: { VELOCITY: num(50) } }, "left_motor.spin(FORWARD, 50, PERCENT)"],
+    [{ type: "robot_motor_spin", fields: { MOTOR: "right_motor", DIR: "REVERSE" }, inputs: { VELOCITY: num(30) } }, "right_motor.spin(REVERSE, 30, PERCENT)"],
+    [{ type: "robot_motor_spin", inputs: { VELOCITY: num(-40) } }, "left_motor.spin(FORWARD, -40, PERCENT)"],
+    [{ type: "robot_motor_spin" }, "left_motor.spin(FORWARD, 50, PERCENT)"],
+    [{ type: "robot_motor_stop" }, "left_motor.stop()"],
+    [{ type: "robot_motor_stop", fields: { MOTOR: "right_motor" } }, "right_motor.stop()"],
+    [{ type: "robot_motor_set_velocity", inputs: { VELOCITY: num(75) } }, "left_motor.set_velocity(75, PERCENT)"],
+    [{ type: "robot_motor_set_velocity", fields: { MOTOR: "right_motor" }, inputs: { VELOCITY: num(20) } }, "right_motor.set_velocity(20, PERCENT)"],
+    [{ type: "robot_motor_spin", inputs: { VELOCITY: { shadow: num(50).shadow, block: axis("axis3") } } }, "left_motor.spin(FORWARD, controller.axis3.position(), PERCENT)"],
+    [{ type: "robot_if", inputs: { COND: { block: { type: "robot_controller_button", fields: { BUTTON: "buttonA" } } }, DO: { block: { type: "robot_magnet" } } } },
+      "if controller.buttonA.pressing():\n    magnet.energize(BOOST)"],
+  ];
+  for (const [b, want] of S) it(`${b.type} ${JSON.stringify(b.fields ?? {})}`, () => expect(one(b)).toBe(want));
+
+  it("motor velocity reporter", () => {
+    expect(expr({ type: "robot_motor_velocity" })).toBe("left_motor.velocity(PERCENT)");
+    expect(expr({ type: "robot_motor_velocity", fields: { MOTOR: "right_motor" } })).toBe("right_motor.velocity(PERCENT)");
+  });
+
+  it("every axis option makes controller.axisN.position()", () => {
+    expect(AXIS_OPTIONS.map(([, v]) => v).sort()).toEqual([...AXIS_NAMES].sort());
+    for (const [label, a] of AXIS_OPTIONS) {
+      expect(label).toContain(`(${a})`);
+      expect(expr(axis(a))).toBe(`controller.${a}.position()`);
+    }
+    // friendly labels match the API's stick layout
+    expect(Object.fromEntries(AXIS_OPTIONS.map(([l, v]) => [v, l]))).toEqual({
+      axis3: "left stick up/down (axis3)", axis4: "left stick left/right (axis4)",
+      axis2: "right stick up/down (axis2)", axis1: "right stick left/right (axis1)",
+    });
+  });
+
+  it("every button option makes controller.buttonX.pressing()", () => {
+    expect(BUTTON_OPTIONS.map(([, v]) => v).sort()).toEqual([...BUTTON_NAMES].sort());
+    expect(new Set(BUTTON_OPTIONS.map(([l]) => l)).size).toBe(12);
+    for (const [, n] of BUTTON_OPTIONS) {
+      expect(expr({ type: "robot_controller_button", fields: { BUTTON: n } })).toBe(`controller.${n}.pressing()`);
+    }
+  });
+
+  it("arithmetic on reporters is parenthesised correctly", () => {
+    expect(expr(arith("ADD", axis("axis3"), axis("axis1")))).toBe("controller.axis3.position() + controller.axis1.position()");
+    expect(expr(arith("MINUS", axis("axis3"), axis("axis1")))).toBe("controller.axis3.position() - controller.axis1.position()");
+    expect(expr(arith("MULTIPLY", arith("ADD", axis("axis3"), axis("axis1")), { type: "math_number", fields: { NUM: 0.5 } })))
+      .toBe("(controller.axis3.position() + controller.axis1.position()) * 0.5");
+    expect(expr(arith("MINUS", axis("axis3"), arith("MINUS", axis("axis1"), axis("axis4")))))
+      .toBe("controller.axis3.position() - (controller.axis1.position() - controller.axis4.position())");
+    expect(one({ type: "robot_motor_spin", fields: { MOTOR: "right_motor" }, inputs: { VELOCITY: { block: arith("MINUS", axis("axis3"), axis("axis1")) } } }))
+      .toBe("right_motor.spin(FORWARD, controller.axis3.position() - controller.axis1.position(), PERCENT)");
+    expect(expr({ type: "math_single", fields: { OP: "ABS" }, inputs: { NUM: { block: axis("axis4") } } }))
+      .toBe("math.fabs(controller.axis4.position())"); // Blockly ABS; works the same for a deadband
+  });
+
+  it("tank drive starter matches the API example", () => {
+    expect(starterPy(TANK_DRIVE_STARTER as J)).toBe([
+      "while True:",
+      "    left_motor.spin(FORWARD, controller.axis3.position(), PERCENT)",
+      "    right_motor.spin(FORWARD, controller.axis2.position(), PERCENT)",
+      "    wait(20, MSEC)",
+    ].join("\n"));
+  });
+  it("arcade drive starter mixes forward and turn", () => {
+    expect(starterPy(ARCADE_DRIVE_STARTER as J)).toBe([
+      "while True:",
+      "    left_motor.spin(FORWARD, controller.axis3.position() + controller.axis1.position(), PERCENT)",
+      "    right_motor.spin(FORWARD, controller.axis3.position() - controller.axis1.position(), PERCENT)",
+      "    wait(20, MSEC)",
+    ].join("\n"));
+  });
+  it("full tank program is exactly the API shape", () => {
+    expect(py([TANK_DRIVE_STARTER as J])).toBe([
+      "def main():",
+      "    while True:",
+      "        left_motor.spin(FORWARD, controller.axis3.position(), PERCENT)",
+      "        right_motor.spin(FORWARD, controller.axis2.position(), PERCENT)",
+      "        wait(20, MSEC)",
+      "",
+      "start(main)",
+      "",
+    ].join("\n"));
+  });
+
+  it("round-trips through JSON serialisation", () => {
+    const ws = wsWith([
+      { type: "robot_motor_set_velocity", fields: { MOTOR: "right_motor" }, inputs: { VELOCITY: num(60) } },
+      ARCADE_DRIVE_STARTER as J,
+    ]);
+    // put an if with a button inside the forever, before the first spin
+    const state = JSON.parse(JSON.stringify(saveState(ws)));
+    const ws2 = new Blockly.Workspace();
+    loadState(ws2, state);
+    expect(generateProgram(ws2).code).toBe(generateProgram(ws).code);
+    expect(JSON.stringify(saveState(ws2))).toBe(JSON.stringify(state));
+    expect(generateProgram(ws2).code).toContain("controller.axis1.position()");
+    const btn = wsWith([{ type: "robot_if", inputs: { COND: { block: { type: "robot_controller_button", fields: { BUTTON: "buttonL2" } } }, DO: { block: { type: "robot_motor_stop", fields: { MOTOR: "right_motor" } } } } }]);
+    const st2 = JSON.parse(JSON.stringify(saveState(btn)));
+    const ws3 = new Blockly.Workspace();
+    loadState(ws3, st2);
+    expect(generateProgram(ws3).code).toContain("if controller.buttonL2.pressing():\n        right_motor.stop()");
+  });
+
+  it("maps generated lines back to the driver blocks", () => {
+    const ws = wsWith([ARCADE_DRIVE_STARTER as J]);
+    const { code, lineMap } = generateProgram(ws);
+    const lines = code.split("\n");
+    const typeOf = (text: string) => {
+      const i = lines.findIndex((l) => l.trim().startsWith(text));
+      expect(i, text).toBeGreaterThanOrEqual(0);
+      const id = lineMap[i];
+      return id ? ws.getBlockById(id)!.type : null;
+    };
+    expect(typeOf("while True:")).toBe("robot_forever");
+    expect(typeOf("left_motor.spin(")).toBe("robot_motor_spin");
+    expect(typeOf("right_motor.spin(")).toBe("robot_motor_spin");
+    expect(typeOf("wait(20, MSEC)")).toBe("robot_wait");
+    const leftId = lineMap[lines.findIndex((l) => l.trim().startsWith("left_motor.spin("))];
+    const rightId = lineMap[lines.findIndex((l) => l.trim().startsWith("right_motor.spin("))];
+    expect(leftId).not.toBe(rightId);
+  });
+
+  it("search finds the new blocks by everyday words", () => {
+    const found = (q: string) => searchableBlocks({ pen: false, magnet: false }).filter((x) => x.words.includes(q)).map((x) => x.item.type);
+    expect(found("joystick")).toContain("robot_controller_axis");
+    expect(found("gamepad")).toContain("robot_controller_button");
+    expect(found("left stick up/down")).toContain("robot_controller_axis");
+    expect(found("wheel")).toEqual(expect.arrayContaining(["robot_motor_spin", "robot_motor_stop", "robot_motor_set_velocity"]));
+    expect(found("controller")).toEqual(expect.arrayContaining(["robot_controller_axis", "robot_controller_button"]));
+    // the starters are not listed as search results
+    expect(found("controller").every((t) => t !== "robot_forever")).toBe(true);
+  });
+
+  it("new blocks have their own colour, motors share Drivetrain's", () => {
+    const ws = wsWith([{ type: "robot_motor_spin", inputs: { VELOCITY: { block: axis("axis3") } } }]);
+    expect(ws.getBlocksByType("robot_controller_axis", false)[0].getStyleName()).toBe("rl_controller");
+    expect(ws.getBlocksByType("robot_motor_spin", false)[0].getStyleName()).toBe("rl_drive");
   });
 });

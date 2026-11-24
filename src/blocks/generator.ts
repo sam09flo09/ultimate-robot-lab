@@ -7,6 +7,7 @@
 import * as Blockly from "blockly";
 import { PythonGenerator, pythonGenerator, Order } from "blockly/python";
 import { HAT_TYPE } from "./definitions";
+import { AXIS_NAMES, BUTTON_NAMES } from "../core/modules";
 
 const M = "\u0001";
 const INDENT = "    ";
@@ -48,6 +49,20 @@ const gens: Record<string, (b: Blockly.Block, g: G) => string | [string, number]
   robot_heading: () => ["drivetrain.heading(DEGREES)", Order.FUNCTION_CALL],
   robot_rotation: () => ["drivetrain.rotation(DEGREES)", Order.FUNCTION_CALL],
   robot_is_done: () => ["drivetrain.is_done()", Order.FUNCTION_CALL],
+  // motors (driver control)
+  robot_motor_spin: (b, g) => `${motor(b)}.spin(${dirFR(b)}, ${val(b, g, "VELOCITY", Order.NONE, "50")}, PERCENT)\n`,
+  robot_motor_stop: (b) => `${motor(b)}.stop()\n`,
+  robot_motor_set_velocity: (b, g) => `${motor(b)}.set_velocity(${val(b, g, "VELOCITY", Order.NONE, "50")}, PERCENT)\n`,
+  robot_motor_velocity: (b) => [`${motor(b)}.velocity(PERCENT)`, Order.FUNCTION_CALL],
+  // controller
+  robot_controller_axis: (b) => {
+    const a = f(b, "AXIS");
+    return [`controller.${(AXIS_NAMES as string[]).includes(a) ? a : "axis3"}.position()`, Order.FUNCTION_CALL];
+  },
+  robot_controller_button: (b) => {
+    const n = f(b, "BUTTON");
+    return [`controller.${(BUTTON_NAMES as string[]).includes(n) ? n : "buttonA"}.pressing()`, Order.FUNCTION_CALL];
+  },
   // sensing
   robot_distance: (b) => [`distance.get_distance(${f(b, "UNITS")})`, Order.FUNCTION_CALL],
   robot_distance_found: () => ["distance.found_object()", Order.FUNCTION_CALL],
@@ -95,6 +110,12 @@ const gens: Record<string, (b: Blockly.Block, g: G) => string | [string, number]
 function notArg(b: Blockly.Block, g: G): string {
   const c = val(b, g, "COND", Order.NONE, "False");
   return /^[\w.]+(\([^()]*\))?$/.test(c) ? c : `(${c})`;
+}
+function motor(b: Blockly.Block) {
+  return f(b, "MOTOR") === "right_motor" ? "right_motor" : "left_motor";
+}
+function dirFR(b: Blockly.Block) {
+  return f(b, "DIR") === "REVERSE" ? "REVERSE" : "FORWARD";
 }
 function eye(b: Blockly.Block) {
   return f(b, "EYE") === "down_eye" ? "down_eye" : "front_eye";

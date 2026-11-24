@@ -7,9 +7,9 @@ import { loadSkulpt } from "../../runtime/testkit";
 import { checkStep, isRunCheck } from "../checks";
 import { sanitizeActivity } from "../activityFile";
 import { BUILT_IN_ACTIVITIES, getBuiltInActivity } from "./index";
-import { SOLUTIONS } from "./solutions";
+import { SOLUTIONS, SCRIPTS } from "./solutions";
 import { CUSTOM_WORLDS } from "./worlds";
-import { runSolution, squareAt } from "./runSolution";
+import { runSolution, scriptedInput, squareAt, type DriveScript } from "./runSolution";
 
 beforeAll(() => loadSkulpt());
 
@@ -29,8 +29,13 @@ function stepWorlds(a: Activity): World[] {
 
 const correctAnswers = (s: ActivityStep) => (s.quiz ?? []).map((q) => q.answer);
 
-async function checkRun(step: ActivityStep, world: World, python: string) {
-  const run = await runSolution(world, python);
+/** Programs that read the controller or spin motors need the driver-control runtime (docs/API.md). */
+const usesDriverApi = (py: string) => /\bcontroller\.|\b(left|right)_motor\./.test(py);
+const DRIVER_ACTIVITIES = new Set(BUILT_IN_ACTIVITIES.filter((a) =>
+  Object.values(SOLUTIONS[a.id] ?? {}).some(usesDriverApi)).map((a) => a.id));
+
+async function checkRun(step: ActivityStep, world: World, python: string, script?: DriveScript) {
+  const run = await runSolution(world, python, script ? { script } : 240);
   const goals = run.sim.evaluateGoals();
   const finalSquare = world.background === "numberGrid" ? squareAt(world, run.sim.state.robot.x, run.sim.state.robot.y) : null;
   const res = checkStep(step, {
@@ -45,12 +50,22 @@ async function checkRun(step: ActivityStep, world: World, python: string) {
 }
 
 describe("built-in activities: format", () => {
-  it("has about 10 activities with unique ids in a01.. order", () => {
+  it("has about 10 activities with unique, permanent aNN- ids (a01..aN, no gaps; later ones may slot in)", () => {
     expect(BUILT_IN_ACTIVITIES.length).toBeGreaterThanOrEqual(8);
     const ids = BUILT_IN_ACTIVITIES.map((a) => a.id);
     expect(new Set(ids).size).toBe(ids.length);
-    ids.forEach((id, i) => expect(id.startsWith(`a${String(i + 1).padStart(2, "0")}-`), id).toBe(true));
+    for (const id of ids) expect(id).toMatch(/^a\d\d-/);
+    const nums = ids.map((id) => parseInt(id.slice(1, 3), 10));
+    expect([...nums].sort((x, y) => x - y)).toEqual(nums.map((_, i) => i + 1));
+    // the original ten keep their teaching order
+    expect(nums.filter((n) => n <= 10)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     for (const a of BUILT_IN_ACTIVITIES) expect(getBuiltInActivity(a.id)).toBe(a);
+  });
+  it("puts the driver-control activities after the lessons they build on", () => {
+    const ids = BUILT_IN_ACTIVITIES.map((a) => a.id);
+    const at = (id: string) => ids.indexOf(id);
+    expect(at("a11-first-driver-program")).toBe(at("a06-input-and-output") + 1);
+    expect(at("a12-arcade-drive-buttons")).toBe(at("a07-decisions-line-follow") + 1);
   });
 
   for (const a of BUILT_IN_ACTIVITIES) {
@@ -144,6 +159,7 @@ describe("custom worlds", () => {
 
 describe("every checked step is completable with its reference solution", () => {
   for (const a of BUILT_IN_ACTIVITIES) {
+    if (DRIVER_ACTIVITIES.has(a.id)) continue; // see "driver-control activities" below
     const worlds = stepWorlds(a);
     a.steps.forEach((step, i) => {
       if (step.checks.length === 0) return;
@@ -187,7 +203,8 @@ describe("starter code does not already complete its step", () => {
       const py = step.starter?.python;
       if (!py || !step.checks.some(isRunCheck)) return;
       it(`${a.id} / ${step.id}`, async () => {
-        const { res } = await checkRun(step, worlds[i], py);
+        // driver starters loop forever: drive them with the step's script (Stop is pressed at its end)
+        const { res } = await checkRun(step, worlds[i], py, SCRIPTS[a.id]?.[step.id]);
         expect(res.passed).toBe(false);
       }, 120_000);
     });
@@ -208,4 +225,108 @@ describe("starter code does not already complete its step", () => {
     const all = await runSolution(worlds[byId("all-bugs")], a.steps[byId("all-bugs")].starter!.python!);
     expect(all.result?.status).toBe("error");
   }, 120_000);
+});
+
+describe("driver-control activities", () => {
+  it("are the two new ones", () => {
+    expect([...DRIVER_ACTIVITIES].sort()).toEqual(["a11-first-driver-program", "a12-arcade-drive-buttons"]);
+  });
+
+  it("scriptedInput replays the timeline by sim time", () => {
+    let now = 0;
+    const input = scriptedInput([
+      { t: 1, axes: { axis3: 60, axis1: -150 }, buttons: { buttonA: true } },
+      { t: 2 },
+    ], () => now);
+    expect(input.read().axes).toEqual({ axis1: 0, axis2: 0, axis3: 0, axis4: 0 });
+    now = 1.5;
+    const s = input.read();
+    expect(s.axes).toEqual({ axis1: -100, axis2: 0, axis3: 60, axis4: 0 });
+    expect(s.buttons.buttonA).toBe(true);
+    expect(s.buttons.buttonB).toBe(false);
+    expect(Object.keys(s.buttons).length).toBe(12);
+    now = 2;
+    expect(input.read().axes.axis3).toBe(0);
+    expect(input.read().buttons.buttonA).toBe(false);
+  });
+
+  it("every step with a run check has a driving script, and scripts only exist for those steps", () => {
+    for (const id of DRIVER_ACTIVITIES) {
+      const a = getBuiltInActivity(id)!;
+      for (const s of a.steps) {
+        expect(!!SCRIPTS[id]?.[s.id], `${id}/${s.id}`).toBe(s.checks.some(isRunCheck));
+      }
+    }
+    for (const [aid, steps] of Object.entries(SCRIPTS)) {
+      for (const [sid, sc] of Object.entries(steps)) {
+        expect(DRIVER_ACTIVITIES.has(aid), aid).toBe(true);
+        expect(sc.timeline.every((f, i, arr) => i === 0 || arr[i - 1].t <= f.t), `${aid}/${sid} in time order`).toBe(true);
+        expect(sc.stopAt).toBeGreaterThan(sc.timeline[sc.timeline.length - 1].t);
+      }
+    }
+  });
+
+  // Runs now: code checks only (no run needed).
+  for (const id of ["a11-first-driver-program", "a12-arcade-drive-buttons"]) {
+    const a = getBuiltInActivity(id)!;
+    for (const step of a.steps) {
+      if (step.checks.length === 0) continue;
+      it(`${id} / ${step.id}: solution passes the code checks`, () => {
+        const python = SOLUTIONS[id]?.[step.id];
+        expect(python, "missing solution").toBeTypeOf("string");
+        const res = checkStep(step, { python: python!, quizAnswers: correctAnswers(step), starterPython: step.starter?.python, lastRun: null });
+        const codeItems = res.items.filter((_, k) => k >= step.checks.length || !isRunCheck(step.checks[k]));
+        expect(codeItems.filter((x) => !x.passed)).toEqual([]);
+      });
+    }
+  }
+
+  it("a12 starters don't already pass the code checks they teach", () => {
+    const a = getBuiltInActivity("a12-arcade-drive-buttons")!;
+    const clamp = a.steps.find((s) => s.id === "clamp-deadband")!;
+    const res = checkStep(clamp, { python: SOLUTIONS[a.id]["arcade-mix"], quizAnswers: correctAnswers(clamp), lastRun: null });
+    expect(res.items[0].passed).toBe(false); // no abs() yet
+    const speed = a.steps.find((s) => s.id === "speed-mode")!;
+    const res2 = checkStep(speed, { python: SOLUTIONS[a.id]["magnet-button"], quizAnswers: [], lastRun: null });
+    expect(res2.items.slice(0, 3).some((x) => !x.passed)).toBe(true);
+  });
+
+  // NEEDS THE DRIVER-CONTROL RUNTIME MERGE (controller / left_motor / right_motor in Python, and
+  // RobotController.setWheelVelocities in the sim). Until then these fail with a NameError on `controller`.
+  describe("[needs driver runtime] scripted drivers complete the goals on the real sim", () => {
+    for (const id of ["a11-first-driver-program", "a12-arcade-drive-buttons"]) {
+      const a = getBuiltInActivity(id)!;
+      const worlds = stepWorlds(a);
+      a.steps.forEach((step, i) => {
+        const script = SCRIPTS[id]?.[step.id];
+        if (!script) return;
+        it(`${id} / ${step.id}`, async () => {
+          const python = SOLUTIONS[id][step.id];
+          const { run, goals, res } = await checkRun(step, worlds[i], python, script);
+          expect(run.result, "did not stop").not.toBeNull();
+          expect(run.result!.status, JSON.stringify(run.result)).toBe("stopped");
+          expect(goals.filter((g) => !g.passed).map((g) => g.detail)).toEqual([]);
+          expect(res.items.filter((x) => !x.passed)).toEqual([]);
+          expect(res.passed).toBe(true);
+        }, 120_000);
+      });
+    }
+
+    it("an untouched controller leaves the robot where it started", async () => {
+      const a = getBuiltInActivity("a11-first-driver-program")!;
+      const w = stepWorlds(a)[0];
+      const run = await runSolution(w, SOLUTIONS[a.id]["drive-to-target"], { script: { timeline: [], stopAt: 2 } });
+      expect(run.result?.status, JSON.stringify(run.result)).toBe("stopped");
+      expect(run.sim.state.robot.x).toBeCloseTo(w.start.x, 3);
+      expect(run.sim.state.robot.y).toBeCloseTo(w.start.y, 3);
+    }, 120_000);
+
+    it("the arcade starter (no mixing) can't turn, so it misses the target", async () => {
+      const a = getBuiltInActivity("a12-arcade-drive-buttons")!;
+      const step = a.steps[0];
+      const run = await runSolution(stepWorlds(a)[0], step.starter!.python!, { script: SCRIPTS[a.id][step.id] });
+      expect(run.result?.status, JSON.stringify(run.result)).toBe("stopped");
+      expect(run.sim.evaluateGoals().every((g) => g.passed)).toBe(false);
+    }, 120_000);
+  });
 });
