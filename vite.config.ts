@@ -28,5 +28,13 @@ export default defineConfig({
       },
     }),
   ],
+  // Pre-bundle every CodeMirror package together so the dev server never ends up with
+  // two copies of @codemirror/state after discovering a new import mid-load.
+  optimizeDeps: {
+    include: [
+      "codemirror", "@codemirror/state", "@codemirror/view", "@codemirror/language",
+      "@codemirror/commands", "@codemirror/autocomplete", "@codemirror/lang-python",
+    ],
+  },
   test: { environment: "node" },
 });
