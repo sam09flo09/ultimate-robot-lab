@@ -2,7 +2,7 @@
  * The teacher level editor UI. `mountLevelEditor` takes the renderer factory as a parameter so the
  * preview page / tests can inject the fallback renderer; the app uses index.ts (real renderer).
  */
-import type { ColorName, Goal, SimState, Vec, World, WorldObject, Zone } from "../core/types";
+import type { ColorName, Goal, Platform, SimState, Vec, World, WorldObject, Zone } from "../core/types";
 import { COLOR_HEX } from "../core/types";
 import type { LevelEditor, LevelEditorOptions, Renderer } from "../core/modules";
 import {
@@ -22,9 +22,9 @@ const RENDER_START_ID = "start";
 
 export type RendererFactory = (canvas: HTMLCanvasElement) => Renderer;
 
-export type Tool = "select" | "wall" | "paint" | "object" | "zone" | "robot" | "erase";
+export type Tool = "select" | "wall" | "paint" | "object" | "zone" | "platform" | "robot" | "erase"; // arm: platform
 type PaintShape = "rect" | "circle" | "line";
-type TwoPointMode = "wall" | "paintRect" | "paintCircle" | "zoneRect" | "zoneCircle";
+type TwoPointMode = "wall" | "paintRect" | "paintCircle" | "zoneRect" | "zoneCircle" | "platform"; // arm: platform
 
 type Drag =
   | { mode: "move"; ref: ItemRef; start: Vec; anchor: Vec; orig: World }
@@ -56,6 +56,7 @@ const ICONS: Record<Tool, string> = {
   paint: '<rect x="4" y="5" width="9" height="9" fill="currentColor" stroke="none"/><circle cx="16" cy="16" r="4.5" fill="currentColor" stroke="none"/>',
   object: '<circle cx="8" cy="15" r="4.5"/><rect x="12.5" y="4" width="8" height="8"/>',
   zone: '<rect x="4" y="4" width="16" height="16" stroke-dasharray="3 2"/><path d="M9 12h6M12 9v6"/>',
+  platform: '<path d="M4 10l8-4 8 4-8 4z"/><path d="M4 10v6l8 4 8-4v-6M12 14v6"/>', // arm
   robot: '<rect x="6" y="7" width="12" height="13" rx="1"/><path d="M12 2v6M9 5l3-3 3 3"/>',
   erase: '<path d="M4 15l8-8 7 7-5 5H8z"/><path d="M8 19h12"/>',
 };
@@ -65,6 +66,7 @@ const TOOL_INFO: { id: Tool; label: string; key: string; hint: string }[] = [
   { id: "paint", label: "Paint", key: "p", hint: "" },
   { id: "object", label: "Object", key: "o", hint: "Click to place an object" },
   { id: "zone", label: "Zone", key: "z", hint: "Drag (or click two points) to mark a goal zone" },
+  { id: "platform", label: "Platform", key: "l", hint: "Drag (or click two points) to draw a raised platform the arm can put objects on" }, // arm
   { id: "robot", label: "Robot", key: "r", hint: "Click/drag to place the start · drag the orange dot or press [ ] to rotate 15°" },
   { id: "erase", label: "Erase", key: "e", hint: "Click or drag over items to erase them" },
 ];
@@ -91,7 +93,8 @@ function defaultGoal(type: Goal["type"], w: World): Goal {
     case "noWallHits": return { type };
     case "endFacing": return { type, heading: 0, tolerance: 10 };
     case "maxTime": return { type, seconds: 60 };
-    default: return { type: "reachZone", zone: z }; // PLACEHOLDER: arm agent adds platform goals
+    case "objectsOnPlatform": return { type, platform: w.platforms?.[0]?.id ?? "", count: 1 }; // arm
+    case "stackHeight": return { type, count: 2 }; // arm
   }
 }
 
@@ -115,6 +118,7 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
   const topts = {
     paintColor: "BLACK" as ColorName, lineWidth: 25, wallThickness: 20,
     objShape: "disk" as WorldObject["shape"], objColor: "RED" as ColorName, objSize: 100, movable: true, pickable: false,
+    platHeight: 100, platColor: "YELLOW" as ColorName, // arm
   };
   let tab: "item" | "level" | "goals" = "level";
   let drag: Drag | null = null;
@@ -283,6 +287,7 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
     if (tool === "paint" && paintShape === "rect") return "paintRect";
     if (tool === "paint" && paintShape === "circle") return "paintCircle";
     if (tool === "zone") return zoneShape === "rect" ? "zoneRect" : "zoneCircle";
+    if (tool === "platform") return "platform"; // arm
     return null;
   }
 
@@ -322,6 +327,10 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
       optsBar.append(lab("Size"), optNum(topts.objSize, 10, 1000, (v) => (topts.objSize = v)));
       optsBar.append(check("Movable", topts.movable, (v) => { topts.movable = v; if (!v) topts.pickable = false; renderOptsBar(); }));
       optsBar.append(check("Pickable", topts.pickable, (v) => { topts.pickable = v; if (v) topts.movable = true; renderOptsBar(); }));
+    } else if (tool === "platform") { // arm
+      optsBar.append(lab("Height"), optNum(topts.platHeight, LIMITS.platformHeightMin, LIMITS.platformHeightMax, (v) => (topts.platHeight = v)), lab("mm"));
+      optsBar.append(lab("Colour"), colorControl(topts.platColor, (c) => (topts.platColor = c)));
+      optsBar.append(h("span", { class: "le-hint", text: info.hint }));
     } else if (tool === "zone") {
       optsBar.append(segmented<"rect" | "circle">([["rect", "▭ Rect"], ["circle", "◯ Circle"]], zoneShape, (v) => { zoneShape = v; pending = null; renderOptsBar(); }));
       optsBar.append(h("span", { class: "le-hint", text: info.hint }));
@@ -366,6 +375,7 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
     const { a, mode } = pending;
     pending = null;
     if (dist(a, p) < 10) { requestDraw(); return; }
+    if (mode === "platform" && (world.platforms?.length ?? 0) >= LIMITS.platforms) { say("That's the most platforms a level can have."); requestDraw(); return; } // arm
     let id = "";
     mutate((w) => {
       if (mode === "wall") {
@@ -374,6 +384,11 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
       } else if (mode === "paintRect") {
         id = newId(w, ID_PREFIX.floor);
         w.floor.push({ kind: "rect", id, ...rectFromCorners(a, p), color: topts.paintColor });
+      } else if (mode === "platform") { // arm
+        id = newId(w, ID_PREFIX.platform);
+        const r = rectFromCorners(a, p);
+        const plat: Platform = { id, x: r.x, y: r.y, w: Math.max(40, r.w), h: Math.max(40, r.h), height: topts.platHeight, color: topts.platColor };
+        (w.platforms ??= []).push(plat);
       } else if (mode === "paintCircle") {
         id = newId(w, ID_PREFIX.floor);
         w.floor.push({ kind: "circle", id, x: a.x, y: a.y, r: Math.round(dist(a, p)), color: topts.paintColor });
@@ -445,6 +460,7 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
       if (q.kind === "wall") { id = newId(w, ID_PREFIX.wall); w.walls.push({ ...clone(w.walls[q.index]), id }); }
       else if (q.kind === "floor") { id = newId(w, ID_PREFIX.floor); w.floor.push({ ...clone(w.floor[q.index]), id }); }
       else if (q.kind === "object") { id = newId(w, ID_PREFIX.object); w.objects.push({ ...clone(w.objects[q.index]), id }); }
+      else if (q.kind === "platform") { id = newId(w, ID_PREFIX.platform); w.platforms!.push({ ...clone(w.platforms![q.index]), id }); } // arm
       else if (q.kind === "zone") { id = newId(w, ID_PREFIX.zone); w.zones.push({ ...clone(w.zones[q.index]), id, label: nextZoneLabel(w) }); }
       const n = findItem(w, id);
       if (n) translateItem(w, n, off, -off);
@@ -954,6 +970,9 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
           field("Colour", colorControl(o.color, (c: ColorName) => mutate((w) => { const q = findItem(w, selectedId); if (q) w.objects[q.index].color = c; }, { rebuild: "none" }))),
           ...xy(o.x, o.y, (w, q, k, v) => { w.objects[q.index][k] = v; }),
           field(o.shape === "disk" ? "Diameter" : "Side", numInput(o.size, onItem((w, q, v) => { w.objects[q.index].size = v; }), { min: 10, max: 1000 })));
+        // arm: height above the floor (on a platform / stack) and the object's own height
+        P.append(field("Raised (mm)", numInput(o.z ?? 0, onItem((w, q, v) => { const ob = w.objects[q.index]; if (v > 0) ob.z = v; else delete ob.z; }), { step: 10, min: 0, max: LIMITS.objectZMax })),
+          field("Object height", numInput(o.height ?? (o.shape === "disk" ? 30 : o.size), onItem((w, q, v) => { w.objects[q.index].height = v; }), { step: 5, min: 5, max: 1000 })));
         if (o.shape === "box")
           P.append(field("Rotation (°)", numInput(o.rotation ?? 0, onItem((w, q, v) => { w.objects[q.index].rotation = normDeg(v); }), { step: 15 })));
         P.append(check("Movable (robot can push it)", o.movable, (v) => mutate((w) => {
@@ -962,6 +981,19 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
           const q = findItem(w, selectedId); if (!q) return; const ob = w.objects[q.index]; ob.pickable = v; if (v) ob.movable = true;
         })));
         if (o.shape === "box") { addBtn("↺ −15°", () => rotateSelected(-15)); addBtn("↻ +15°", () => rotateSelected(15)); }
+        break;
+      }
+      case "platform": { // arm
+        const p = world.platforms![r.index];
+        const onP = (fn: (q: Platform, v: number) => void) => onItem((w, q, v) => fn(w.platforms![q.index], v));
+        P.append(h("h3", { text: `Platform · ${p.id}` }),
+          ...xy(p.x, p.y, (w, q, k, v) => { w.platforms![q.index][k] = v; }),
+          field("Width", numInput(p.w, onP((q, v) => { q.w = v; }), { min: 40 })),
+          field("Depth", numInput(p.h, onP((q, v) => { q.h = v; }), { min: 40 })),
+          field("Height (mm)", numInput(p.height, onP((q, v) => { q.height = v; }), { step: 10, min: LIMITS.platformHeightMin, max: LIMITS.platformHeightMax })),
+          field("Colour", colorControl(p.color ?? "YELLOW", (c: ColorName) => mutate((w) => { const q = findItem(w, selectedId); if (q) w.platforms![q.index].color = c; }, { rebuild: "none" }))));
+        const used = world.goals.filter((g) => g.type === "objectsOnPlatform" && g.platform === p.id).length;
+        P.append(h("p", { class: "le-empty", text: `Solid to the robot, like a wall. The arm can put objects on top. ${used ? `Used by ${used} goal${used > 1 ? "s" : ""}.` : ""}` }));
         break;
       }
       case "zone": {
@@ -1015,7 +1047,8 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
       field("Grid square", selectInput(gridOpts, String(world.gridSize ?? 200), (v) => mutate((w) => { w.gridSize = Number(v); }))),
       h("h3", { text: "Robot hardware" }),
       check("Pen (draws on the floor)", !!world.hardware?.pen, (v) => mutate((w) => { w.hardware = { ...w.hardware, pen: v }; })),
-      check("Magnet (picks up objects)", !!world.hardware?.magnet, (v) => mutate((w) => { w.hardware = { ...w.hardware, magnet: v }; })));
+      check("Magnet (picks up objects)", !!world.hardware?.magnet, (v) => mutate((w) => { w.hardware = { ...w.hardware, magnet: v }; })),
+      check("Arm and claw (lifts and stacks objects)", !!world.hardware?.arm, (v) => mutate((w) => { w.hardware = { ...w.hardware, arm: v }; if (!v) delete w.hardware.arm; }))); // arm
     renderRaceSettings(P); // race
     P.append(h("h3", { text: "Starter Python" }));
     const code = textInput(world.starter?.python ?? "", LIMITS.python, (w, v) => { w.starter = { ...w.starter, python: v }; }, true, "le-code");
@@ -1069,6 +1102,17 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
     s.append(h("option", { value: "", text: "— choose a zone —" }));
     for (const z of world.zones) s.append(h("option", { value: z.id, text: z.label ? `${z.label} (${z.id})` : z.id }));
     if (value && !world.zones.some((z) => z.id === value)) s.append(h("option", { value, text: `⚠ missing: ${value}` }));
+    s.value = value;
+    s.addEventListener("change", () => set(s.value));
+    return s;
+  }
+
+  /** arm: choose a platform for a goal. */
+  function platformPicker(value: string, set: (v: string) => void): HTMLSelectElement {
+    const s = h("select", { "aria-label": "Platform" });
+    s.append(h("option", { value: "", text: "— choose a platform —" }));
+    for (const p of world.platforms ?? []) s.append(h("option", { value: p.id, text: `${p.id} (${p.height} mm)` }));
+    if (value && !(world.platforms ?? []).some((p) => p.id === value)) s.append(h("option", { value, text: `⚠ missing: ${value}` }));
     s.value = value;
     s.addEventListener("change", () => set(s.value));
     return s;
@@ -1145,6 +1189,21 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
             field("Heading (°)", numInput(g.heading, (w, v) => { const q = w.goals[i]; if (q?.type === "endFacing") q.heading = normDeg(v); }, { step: 15 })),
             field("± tolerance", numInput(g.tolerance ?? 10, (w, v) => { const q = w.goals[i]; if (q?.type === "endFacing") q.tolerance = v; }, { step: 5, min: 0, max: 180 })));
           break;
+        // arm
+        case "objectsOnPlatform":
+          card.append(
+            field("Platform", platformPicker(g.platform, (v) => upd(i, (q) => { if (q.type === "objectsOnPlatform") q.platform = v; }))),
+            field("How many", numInput(g.count, (w, v) => { const q = w.goals[i]; if (q?.type === "objectsOnPlatform") q.count = Math.round(v); }, { step: 1, min: 1, max: LIMITS.objects })),
+            field("Colour", colorControl(g.color, (c: ColorName | undefined) => upd(i, (q) => { if (q.type === "objectsOnPlatform") { if (c) q.color = c; else delete q.color; } }, "none"), true)));
+          break;
+        case "stackHeight": {
+          const zp = zonePicker(g.zone ?? "", (v) => upd(i, (q) => { if (q.type === "stackHeight") { if (v) q.zone = v; else delete q.zone; } }));
+          (zp.options[0] as HTMLOptionElement).text = "Anywhere";
+          card.append(
+            field("Objects tall", numInput(g.count, (w, v) => { const q = w.goals[i]; if (q?.type === "stackHeight") q.count = Math.round(v); }, { step: 1, min: 2, max: LIMITS.stackCount })),
+            field("In zone", zp));
+          break;
+        }
         case "maxTime":
           card.append(field("Seconds", numInput(g.seconds, (w, v) => { const q = w.goals[i]; if (q?.type === "maxTime") q.seconds = v; }, { step: 5, min: 1, max: 3600 })));
           break;
@@ -1250,8 +1309,9 @@ export function mountLevelEditor(host: HTMLElement, opts: LevelEditorOptions, ma
         ctx.beginPath(); ctx.moveTo(a.px, a.py); ctx.lineTo(b.px, b.py); ctx.stroke();
         ctx.lineCap = "butt";
         label(`${Math.round(dist(pending.a, hover))} mm`, b);
-      } else if (pending.mode === "paintRect" || pending.mode === "zoneRect") {
+      } else if (pending.mode === "paintRect" || pending.mode === "zoneRect" || pending.mode === "platform") {
         if (pending.mode === "paintRect") ctx.fillStyle = hexA(COLOR_HEX[topts.paintColor], 0.6);
+        if (pending.mode === "platform") ctx.fillStyle = hexA(COLOR_HEX[topts.platColor], 0.6); // arm
         ctx.beginPath(); ctx.rect(Math.min(a.px, b.px), Math.min(a.py, b.py), Math.abs(b.px - a.px), Math.abs(b.py - a.py)); ctx.fill(); ctx.stroke();
         label(`${Math.abs(hover.x - pending.a.x)} × ${Math.abs(hover.y - pending.a.y)}`, b);
       } else {

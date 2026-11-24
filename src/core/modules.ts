@@ -175,7 +175,7 @@ export interface PythonRunner {
 export interface BlocksOptions {
   onChange: () => void;
   /** Hardware available in the current world; hide pen/magnet categories when false. */
-  hardware: { pen: boolean; magnet: boolean };
+  hardware: { pen: boolean; magnet: boolean; arm?: boolean /* arm */ };
 }
 export interface BlocksEditor {
   /** Python generated from the workspace. Always a complete program ending in start(main). */
@@ -185,7 +185,7 @@ export interface BlocksEditor {
   setState(state: unknown): void;
   /** Highlight the block that produced a given generated-Python line (0 = clear). */
   highlightLine(line: number): void;
-  setHardware(hw: { pen: boolean; magnet: boolean }): void;
+  setHardware(hw: { pen: boolean; magnet: boolean; arm?: boolean /* arm */ }): void;
   setReadOnly(ro: boolean): void;
   resize(): void;          // call when the host element changes size / becomes visible
   dispose(): void;

@@ -9,6 +9,7 @@ export const PALETTE = {
   controller: "#3B62C4", // royal blue (driver control)
   pen: "#6E5BC4",        // violet
   magnet: "#B8432F",     // brick
+  arm: "#3F7F6A",        // pine (arm and claw)
   looks: "#B04A84",      // plum
   control: "#C9921B",    // mustard
   operators: "#4E9550",  // leaf green

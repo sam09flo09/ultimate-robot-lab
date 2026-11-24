@@ -10,9 +10,11 @@ import { ringSweep } from "./ringSweep";
 import { ovalSpeedway } from "./ovalSpeedway";
 import { zigzagGates } from "./zigzagGates";
 import { tapeDash } from "./tapeDash";
+// arm
+import { stackShop } from "./stackShop";
 
 /** In menu order. The first one is the default playground. Treat these as read-only (deep-copy before editing). */
-export const PLAYGROUNDS: World[] = [numberGrid, corridorQuest, tapeTrail, colorDepot, sketchPad, ringSweep, ovalSpeedway, zigzagGates, tapeDash];
+export const PLAYGROUNDS: World[] = [numberGrid, corridorQuest, tapeTrail, colorDepot, sketchPad, ringSweep, ovalSpeedway, zigzagGates, tapeDash, stackShop];
 
 /** The race (time-trial) playgrounds, also listed in PLAYGROUNDS. */
 export const RACE_PLAYGROUNDS: World[] = [ovalSpeedway, zigzagGates, tapeDash];

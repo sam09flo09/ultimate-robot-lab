@@ -9,6 +9,7 @@ import {
 } from "./geometry";
 import { castRay, DISTANCE_MAX, FRONT_RANGE, objectInFront } from "./sensors";
 import { evaluateGoals, isEndStateGoal } from "./goals";
+import { ArmSystem } from "./arm"; // arm
 
 export const SUBSTEP = 1 / 120;
 export const ROBOT_SIZE = 140;
@@ -62,14 +63,17 @@ export class Engine {
   readonly halfH: number;
   readonly hasPen: boolean;
   readonly hasMagnet: boolean;
+  /** arm: arm/claw, platforms and stacked objects (no-op in worlds without them) */
+  readonly arm: ArmSystem;
 
   /** walls + immovable objects */
   statics: Body[] = [];
   private wallBodies: Body[];
   /** one body per state.objects entry (same index) */
   objBodies: Body[] = [];
-  private movable: boolean[] = [];
-  private awake: Uint8Array = new Uint8Array(0);
+  /* arm: public so sim/arm.ts can lift objects out of (and back into) the 2D collisions */
+  movable: boolean[] = [];
+  awake: Uint8Array = new Uint8Array(0);
   carryIndex = -1;
   private carryRel = 0;
 
@@ -110,6 +114,7 @@ export class Engine {
     this.needsSettle = world.goals.some(isEndStateGoal);
     this.wallBodies = world.walls.map((w) => makeWallBody(w.a, w.b, w.thickness));
     this.robotBox = makeBox(0, 0, this.half, this.half, 0);
+    this.arm = new ArmSystem(this, world); // arm
     this.state = {
       time: 0,
       robot: { x: 0, y: 0, heading: 0 },
@@ -149,6 +154,7 @@ export class Engine {
     const m = this.motion;
     this.motion = null;
     if (m && "reject" in m) m.reject(stoppedError());
+    this.arm.abort(); // arm
     const ws = this.waiters;
     this.waiters = [];
     for (let i = 0; i < ws.length; i++) ws[i].reject(stoppedError());
@@ -180,6 +186,7 @@ export class Engine {
     this.statics = this.wallBodies.slice();
     for (let i = 0; i < s.objects.length; i++) if (!this.movable[i]) this.statics.push(this.objBodies[i]);
     this.carryIndex = -1;
+    this.arm.restore(); // arm: platforms, elevated objects, arm state
 
     this.motion = null;
     this.waiters = [];
@@ -330,7 +337,7 @@ export class Engine {
     this.checkGoals();
   }
 
-  private busy(): boolean { return this.motion !== null || this.waiters.length > 0; }
+  private busy(): boolean { return this.motion !== null || this.waiters.length > 0 || this.arm.busy(); /* arm */ }
 
   private substep(): void {
     const s = this.state, r = s.robot, dt = SUBSTEP;
@@ -393,6 +400,7 @@ export class Engine {
       }
     }
     this.updateCarried();
+    this.arm.substep(dt); // arm
     this.updateContacts();
 
     if (m && m === this.motion) {
@@ -515,7 +523,7 @@ export class Engine {
   }
 
   /** Resolve awake objects against statics, the border and each other. */
-  private settleObjects(): void {
+  /* arm: public */ settleObjects(): void {
     const bodies = this.objBodies, n = bodies.length, hit = this.hit, statics = this.statics;
     for (let i = 0; i < n; i++) {
       if (!this.awake[i] || i === this.carryIndex || !this.movable[i]) continue;
@@ -723,7 +731,7 @@ export class Engine {
     const r = this.state.robot;
     const rad = (r.heading * Math.PI) / 180;
     const ux = clean(Math.sin(rad)), uy = clean(Math.cos(rad));
-    return castRay(r.x + ux * this.half, r.y + uy * this.half, ux, uy, this.halfW, this.halfH, this.statics, this.objBodies, this.carryIndex);
+    return castRay(r.x + ux * this.half, r.y + uy * this.half, ux, uy, this.halfW, this.halfH, this.statics, this.objBodies, this.carryIndex >= 0 ? this.carryIndex : this.arm.heldIndex /* arm */);
   }
 
   private updateDistanceRay(): void {

@@ -154,7 +154,7 @@ export function createBlocksEditor(host: HTMLElement, opts: BlocksOptions): Bloc
       ws.highlightBlock(highlighted);
     },
     setHardware(hw) {
-      if (hw.pen === hardware.pen && hw.magnet === hardware.magnet) return;
+      if (hw.pen === hardware.pen && hw.magnet === hardware.magnet && !!hw.arm === !!hardware.arm) return; // arm
       hardware = { ...hw };
       ws.updateToolbox(buildToolbox(hardware));
       if (input.value) showMatches();

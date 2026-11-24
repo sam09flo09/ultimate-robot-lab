@@ -35,8 +35,8 @@ export function goalText(g: Goal, world?: World): string {
     case "noWallHits": return "Don’t hit any walls";
     case "endFacing": return `Finish facing ${Math.round(g.heading)}°`;
     case "maxTime": return `Finish within ${g.seconds} s`;
-    case "objectsOnPlatform": return `Put ${g.count} ${g.color ? g.color.toLowerCase() + " " : ""}object${g.count === 1 ? "" : "s"} on ${g.platform}`;
-    case "stackHeight": return `Build a stack ${g.count} high`;
+    case "objectsOnPlatform": return `Put ${g.count} ${g.color ? g.color.toLowerCase() + " " : ""}object${g.count === 1 ? "" : "s"} on platform ${g.platform}`; // arm
+    case "stackHeight": return `Build a stack ${g.count} high${g.zone ? ` in ${zn(g.zone)}` : ""}`; // arm
   }
 }
 

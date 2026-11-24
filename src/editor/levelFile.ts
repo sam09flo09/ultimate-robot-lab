@@ -6,7 +6,7 @@
  * and anything unusable is replaced by a safe default (with a warning) rather than crashing.
  * Pure functions, no DOM.
  */
-import type { ColorName, FloorShape, Goal, Pose, Vec, Wall, World, WorldObject, Zone } from "../core/types";
+import type { ColorName, FloorShape, Goal, Platform, Pose, Vec, Wall, World, WorldObject, Zone } from "../core/types";
 import type { LevelFile } from "../core/modules";
 import { COLOR_HEX } from "../core/types";
 import { ID_PREFIX, ID_RE, nextId } from "./ids";
@@ -31,6 +31,12 @@ export const LIMITS = {
   coord: 20_000, // |x|,|y| clamp, mm
   fieldMin: 500,
   fieldMax: 10_000,
+  // arm
+  platforms: 50,
+  platformHeightMin: 50,
+  platformHeightMax: 300,
+  objectZMax: 1000,
+  stackCount: 20,
 } as const;
 
 export const SIZE_PRESETS: { w: number; h: number; label: string }[] = [
@@ -191,6 +197,11 @@ export function sanitizeWorld(raw: unknown): { world: World; warnings: string[] 
       pickable,
     };
     if (shape === "box") obj.rotation = normDeg(num(o.rotation) ?? 0);
+    // arm: height above the floor and object height (optional)
+    const oz = num(o.z);
+    if (oz !== null && oz > 0) obj.z = Math.min(LIMITS.objectZMax, oz);
+    const oh = num(o.height);
+    if (oh !== null && oh > 0) obj.height = Math.min(1000, Math.max(5, oh));
     objects.push(obj);
   }
 
@@ -218,6 +229,23 @@ export function sanitizeWorld(raw: unknown): { world: World; warnings: string[] 
     if (typeof z.id === "string" && !zoneMap.has(z.id)) zoneMap.set(z.id, id);
   }
   const zoneRef = (v: unknown): string | null => (typeof v === "string" && zoneMap.has(v) ? zoneMap.get(v)! : null);
+
+  // arm: platforms (raised blocks); raw-id -> final-id for goals
+  const platforms: Platform[] = [];
+  const platMap = new Map<string, string>();
+  for (const p of list(src.platforms, LIMITS.platforms, "platforms", warn)) {
+    if (!isObj(p)) continue;
+    const x = num(p.x), y = num(p.y), w = num(p.w), h = num(p.h);
+    if (x === null || y === null || w === null || h === null || w <= 0 || h <= 0) { warn("Skipped a broken platform."); continue; }
+    const id = takeId(p.id, ID_PREFIX.platform, used);
+    const plat: Platform = {
+      id, x: coord(x), y: coord(y), w: size(w), h: size(h),
+      height: clampNum(p.height, LIMITS.platformHeightMin, LIMITS.platformHeightMax, 100),
+    };
+    if (isColor(p.color) && p.color !== "NONE") plat.color = p.color;
+    platforms.push(plat);
+    if (typeof p.id === "string" && !platMap.has(p.id)) platMap.set(p.id, id);
+  }
 
   // goals
   const goals: Goal[] = [];
@@ -257,6 +285,23 @@ export function sanitizeWorld(raw: unknown): { world: World; warnings: string[] 
       case "maxTime":
         goal = { type: "maxTime", seconds: clampNum(g.seconds, 1, 3600, 60) };
         break;
+      // arm
+      case "objectsOnPlatform": {
+        const platform = typeof g.platform === "string" ? platMap.get(g.platform) : undefined;
+        if (platform) {
+          goal = { type: "objectsOnPlatform", platform, count: clampNum(g.count, 1, LIMITS.objects, 1, true) };
+          if (typeof g.color === "string" && isColor(g.color) && g.color !== "NONE") goal.color = g.color;
+        } else { warn("Skipped a goal that pointed at a missing platform."); continue; }
+        break;
+      }
+      case "stackHeight": {
+        goal = { type: "stackHeight", count: clampNum(g.count, 2, LIMITS.stackCount, 2, true) };
+        if (g.zone !== undefined && g.zone !== "") {
+          const zone = zoneRef(g.zone);
+          if (zone) goal.zone = zone; else { warn("Skipped a goal that pointed at a missing zone."); continue; }
+        }
+        break;
+      }
       default:
         warn("Skipped a goal of an unknown type.");
         continue;
@@ -313,6 +358,8 @@ export function sanitizeWorld(raw: unknown): { world: World; warnings: string[] 
     version: 1,
   };
   if (race) world.race = race; // race
+  if (hw.arm === true) world.hardware!.arm = true; // arm
+  if (platforms.length) world.platforms = platforms; // arm
   return { world, warnings };
 }
 

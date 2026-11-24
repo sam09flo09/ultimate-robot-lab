@@ -4,6 +4,7 @@
  */
 import type { World } from "../../core/types";
 import { mazeWalls } from "../../worlds/helpers";
+import { stackShop } from "../../worlds/stackShop"; // arm
 
 /** A short course with a wall across it. The robot must stop in the zone just before the wall. */
 export const WALL_STOP_1: World = {
@@ -202,4 +203,23 @@ export const DRIVER_PRACTICE: World = {
   version: 1,
 };
 
-export const CUSTOM_WORLDS: World[] = [WALL_STOP_1, WALL_STOP_2, BUMPER_TEST, COLOR_CHECK, GRID_CORNERS, MINI_DEPOT, MAZE_2, DRIVER_PRACTICE];
+// arm: Stack Shop with one job at a time (a13 Arms and claws)
+const { starter: _starter, ...shopNoStarter } = stackShop;
+/** Stack Shop, but the only goal is the blue block on the low shelf. */
+export const SHELF_DROP: World = {
+  ...shopNoStarter,
+  id: "act-shelf-drop",
+  name: "Shelf Drop",
+  description: "Pick up the blue block and put it on the low shelf (100 mm high). Lift it high enough first!",
+  goals: [{ type: "objectsOnPlatform", platform: "low-shelf", count: 1, color: "BLUE", description: "The blue block is on the low shelf" }],
+};
+/** Stack Shop, but the only goal is a stack 3 tall on the pad. */
+export const STACK_PAD: World = {
+  ...shopNoStarter,
+  id: "act-stack-pad",
+  name: "Stack Pad",
+  description: "Stack both red blocks on the orange anchor block to make a stack 3 blocks tall.",
+  goals: [{ type: "stackHeight", count: 3, zone: "stack-pad", description: "A stack 3 blocks tall on the orange pad" }],
+};
+
+export const CUSTOM_WORLDS: World[] = [WALL_STOP_1, WALL_STOP_2, BUMPER_TEST, COLOR_CHECK, GRID_CORNERS, MINI_DEPOT, MAZE_2, DRIVER_PRACTICE, SHELF_DROP, STACK_PAD];

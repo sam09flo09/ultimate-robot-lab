@@ -79,6 +79,14 @@ const gens: Record<string, (b: Blockly.Block, g: G) => string | [string, number]
   robot_pen_move: (b) => `pen.move(${f(b, "POS")})\n`,
   robot_pen_color: (b) => `pen.set_pen_color(${f(b, "COLOR")})\n`,
   robot_magnet: (b) => `magnet.energize(${f(b, "MODE")})\n`,
+  // arm
+  robot_arm_spin_to: (b, g) => `arm.spin_to_position(${val(b, g, "ANGLE", Order.NONE, "0")}, DEGREES${waitArg(b)})\n`,
+  robot_arm_spin: (b) => `arm.spin(${f(b, "DIR") === "DOWN" ? "DOWN" : "UP"})\n`,
+  robot_arm_stop: () => "arm.stop()\n",
+  robot_arm_set_velocity: (b, g) => `arm.set_velocity(${val(b, g, "VALUE", Order.NONE, "50")}, PERCENT)\n`,
+  robot_arm_position: () => ["arm.position(DEGREES)", Order.FUNCTION_CALL],
+  robot_claw: (b) => `claw.${f(b, "ACTION") === "open" ? "open" : "close"}()\n`,
+  robot_claw_holding: () => ["claw.is_holding()", Order.FUNCTION_CALL],
   // looks
   robot_screen_print: (b, g) => `brain.screen.print(${val(b, g, "VALUE", Order.NONE, "''")})\n`,
   robot_screen_newline: () => "brain.screen.new_line()\n",

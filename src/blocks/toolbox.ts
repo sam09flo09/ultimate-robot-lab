@@ -37,7 +37,10 @@ export const ARCADE_DRIVE_STARTER: Item = loopWait(
   spinWith("left_motor", arith("ADD", axis("axis3"), axis("axis1")),
     spinWith("right_motor", arith("MINUS", axis("axis3"), axis("axis1")), wait20())));
 
-export function buildToolbox(hw: { pen: boolean; magnet: boolean }): Blockly.utils.toolbox.ToolboxDefinition {
+/** Hardware that shows extra categories. `arm` is optional so older callers keep working. */
+export type ToolboxHardware = { pen: boolean; magnet: boolean; arm?: boolean };
+
+export function buildToolbox(hw: ToolboxHardware): Blockly.utils.toolbox.ToolboxDefinition {
   const cats: Item[] = [
     {
       kind: "category", name: "Drivetrain", categorystyle: "rl_drive_cat", contents: [
@@ -138,6 +141,26 @@ export function buildToolbox(hw: { pen: boolean; magnet: boolean }): Blockly.uti
       ],
     });
   }
+  if (hw.arm) {
+    // arm: grab, lift, let go
+    cats.push({
+      kind: "category", name: "Arm", categorystyle: "rl_arm_cat", contents: [
+        label("Starter · pick up and lift"),
+        starter(s("robot_claw", {}, s("robot_arm_spin_to", { inputs: { ANGLE: n(45) } }))),
+        sep(),
+        blk("robot_arm_spin_to", { ANGLE: n(45) }),
+        blk("robot_arm_spin"),
+        blk("robot_arm_spin", undefined, { DIR: "DOWN" }),
+        blk("robot_arm_stop"),
+        blk("robot_arm_set_velocity", { VALUE: n(50) }),
+        blk("robot_arm_position"),
+        sep(),
+        blk("robot_claw"),
+        blk("robot_claw", undefined, { ACTION: "open" }),
+        blk("robot_claw_holding"),
+      ],
+    });
+  }
   cats.push(
     {
       kind: "category", name: "Looks", categorystyle: "rl_looks_cat", contents: [
@@ -199,7 +222,7 @@ export function buildToolbox(hw: { pen: boolean; magnet: boolean }): Blockly.uti
 }
 
 /** Flat list of every toolbox block (no starters), with words to match a search. */
-export function searchableBlocks(hw: { pen: boolean; magnet: boolean }): { words: string; item: Item }[] {
+export function searchableBlocks(hw: ToolboxHardware): { words: string; item: Item }[] {
   const tb = buildToolbox(hw) as unknown as { contents: Item[] };
   const out: { words: string; item: Item }[] = [];
   for (const cat of tb.contents) {
@@ -224,6 +247,13 @@ const EXTRA_WORDS: Record<string, string> = {
   robot_motor_velocity: "wheel motor speed velocity",
   robot_controller_axis: "joystick stick gamepad axis driver control drive input position tank arcade",
   robot_controller_button: "gamepad button press pressing driver control input trigger shoulder",
+  robot_arm_spin_to: "arm lift raise lower angle position manipulator",
+  robot_arm_spin: "arm lift raise lower up down manipulator",
+  robot_arm_stop: "arm halt",
+  robot_arm_set_velocity: "arm speed velocity",
+  robot_arm_position: "arm angle degrees",
+  robot_claw: "claw grab grip pick up release drop gripper end effector",
+  robot_claw_holding: "claw holding grab gripper",
 };
 function blockWords(type: string): string {
   const def = BLOCK_DEFS.find((d) => d.type === type);

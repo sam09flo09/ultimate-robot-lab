@@ -18,6 +18,7 @@
 import type { ColorName, FloorShape, SimState, Wall, World, WorldObject, Zone } from "../core/types";
 import { COLOR_HEX } from "../core/types";
 import type { RenderOptions, Renderer } from "../core/modules";
+import { drawArm, drawHeld, drawPlatforms, drawRaisedObjects } from "./arm"; // arm
 import { computeLayout, layoutToCanvas, layoutToWorld, type Layout, type View } from "./view";
 
 const INK = "#0C0B0A";
@@ -125,6 +126,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
 
     for (const f of world.floor) drawFloor(c, f);
     drawWalls(c, world.walls);
+    drawPlatforms(c, world.platforms, px); // arm
     c.restore();
 
     // border (the implicit solid wall)
@@ -494,6 +496,9 @@ export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
         return true;
       }
     }
+    for (const p of world.platforms ?? []) { // arm
+      if (p.id === id) { c.beginPath(); c.rect(p.x - p.w / 2 - pad, -p.y - p.h / 2 - pad, p.w + 2 * pad, p.h + 2 * pad); return true; }
+    }
     if (id === "start" || id === "robot") {
       c.beginPath();
       c.arc(robotX, -robotY, robotSize * 0.75 + pad, 0, Math.PI * 2);
@@ -557,13 +562,18 @@ export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
       }
     }
 
-    // objects
+    // objects (arm: floor objects here; raised ones and the claw's after them)
     let carried: WorldObject | null = null;
+    const heldId = state && state.arm ? state.arm.holding : null;
+    let held: WorldObject | null = null;
     for (let i = 0; i < objects.length; i++) {
       const o = objects[i];
       if (carryingId !== null && o.id === carryingId) { carried = o; continue; }
+      if (heldId !== null && o.id === heldId) { held = o; continue; }
+      if (o.z && o.z > 0) continue;
       drawObject(c, o, px);
     }
+    drawRaisedObjects(c, objects, heldId, px, drawObject); // arm
 
     // distance ray
     if (opts.showSensors && state && state.distanceRay) {
@@ -598,6 +608,12 @@ export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
       state ? state.bumperPressed : false, carried !== null, px,
     );
     if (carried) drawCarried(c, carried, robot.x, robot.y, robot.heading, size, px);
+    if (hw.arm) { // arm: the arm, what the claw holds, then the jaws on top
+      const armState = state ? state.arm : undefined;
+      drawArm(c, robot.x, robot.y, robot.heading, size, armState, "arm", px);
+      if (held) drawHeld(c, held, px, drawObject);
+      drawArm(c, robot.x, robot.y, robot.heading, size, armState, "jaws", px);
+    }
 
     // editor selection
     if (opts.selectedId) {

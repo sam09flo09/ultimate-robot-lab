@@ -15,6 +15,7 @@ import { a09FunctionsColorDepot } from "./a09-functions-color-depot";
 import { a10CapstoneMaze } from "./a10-capstone-maze";
 import { a11FirstDriverProgram } from "./a11-first-driver-program";
 import { a12ArcadeDriveButtons } from "./a12-arcade-drive-buttons";
+import { a13ArmsAndClaws } from "./a13-arms-and-claws"; // arm
 
 export const BUILT_IN_ACTIVITIES: Activity[] = [
   a01MeetYourRobot,
@@ -29,6 +30,7 @@ export const BUILT_IN_ACTIVITIES: Activity[] = [
   a08DebuggingDetectives,
   a09FunctionsColorDepot,
   a10CapstoneMaze,
+  a13ArmsAndClaws, // arm: manipulators (Units 8 and 12), after the capstone
 ];
 
 export function getBuiltInActivity(id: string): Activity | undefined {

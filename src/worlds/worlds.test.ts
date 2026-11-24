@@ -28,6 +28,7 @@ function inField(w: World, x0: number, x1: number, y0: number, y1: number) {
 function goalZones(g: Goal): string[] {
   if (g.type === "reachZone" || g.type === "objectsInZone") return [g.zone];
   if (g.type === "visitInOrder") return g.zones;
+  if (g.type === "stackHeight" && g.zone) return [g.zone]; // arm
   return [];
 }
 
@@ -71,8 +72,8 @@ function reachable(w: World, clear: number) {
 }
 
 describe("PLAYGROUNDS", () => {
-  it("has 9 playgrounds (6 + 3 races) with unique ids and names", () => {
-    expect(PLAYGROUNDS.length).toBe(9);
+  it("has 10 playgrounds (6 + 3 races + Stack Shop) with unique ids and names", () => {
+    expect(PLAYGROUNDS.length).toBe(10);
     expect(new Set(PLAYGROUNDS.map((w) => w.id)).size).toBe(PLAYGROUNDS.length);
     expect(new Set(PLAYGROUNDS.map((w) => w.name)).size).toBe(PLAYGROUNDS.length);
   });
