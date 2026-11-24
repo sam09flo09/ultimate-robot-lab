@@ -179,6 +179,13 @@ export interface RobotController {
   penDown(down: boolean): boolean;
   setPenColor(c: ColorName): boolean;
   magnet(on: boolean): boolean;           // on = pick up object directly in front; off = drop
+
+  // driver control: independent left/right wheel speeds (differential drive)
+  /** Spin the wheels continuously at these percents (-100..100; 100% = 800 mm/s at that wheel's
+   *  rim, the same top speed as drive()). Supersedes any drive/turn/…_for motion (resolving its
+   *  promise, like stop()). 0,0 stops. Track width (wheel to wheel) = 120 mm. Collisions, pushing,
+   *  wall hits and the bumper behave as for drive(). Runs until changed, stop(), or abort(). */
+  setWheelVelocities(leftPercent: number, rightPercent: number): void;
 }
 
 export interface Sim {

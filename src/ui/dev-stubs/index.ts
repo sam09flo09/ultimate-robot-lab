@@ -96,6 +96,7 @@ export function createSim(world: World): Sim {
     penDown: (d) => { if (!world.hardware?.pen) return false; state.penDown = d; if (d) state.strokes.push({ color: state.penColor, width: 6, points: [{ x: state.robot.x, y: state.robot.y }] }); return true; },
     setPenColor: (c: ColorName) => { if (!world.hardware?.pen) return false; state.penColor = c; return true; },
     magnet: () => !!world.hardware?.magnet,
+    setWheelVelocities: () => undefined,
   };
   const sim: Sim = {
     world, state, controller: ctl,

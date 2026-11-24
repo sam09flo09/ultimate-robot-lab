@@ -67,3 +67,41 @@ Errors are explained in student-friendly language, as in the original sim (see `
 
 ## Constant: X, Y
 Added to the constants list for `location.position`.
+
+## Driver control: controller and motors
+Students write a loop that reads the controller and sets the motors. Driver programs run at 1× speed
+(a person is driving in real time). Inputs come from the keyboard, an on-screen controller (touch
+Chromebooks) or a USB/Bluetooth gamepad — whichever the student uses.
+
+```python
+def main():
+    while True:
+        left_motor.spin(FORWARD, controller.axis3.position(), PERCENT)
+        right_motor.spin(FORWARD, controller.axis2.position(), PERCENT)
+        if controller.buttonA.pressing():
+            magnet.energize(BOOST)
+        wait(20, MSEC)
+
+start(main)
+```
+
+| call | returns / behaviour |
+|---|---|
+| `controller.axis1.position()` … `axis4` | -100..100. axis1 = right stick left/right, axis2 = right stick up/down, axis3 = left stick up/down, axis4 = left stick left/right. Up and right are positive. |
+| `controller.buttonA.pressing()` (also `buttonB`, `buttonX`, `buttonY`, `buttonUp`, `buttonDown`, `buttonLeft`, `buttonRight`, `buttonL1`, `buttonL2`, `buttonR1`, `buttonR2`) | True while held |
+| `left_motor.spin(dir, velocity, PERCENT)` / `right_motor.spin(...)` | dir FORWARD/REVERSE; velocity -100..100 (negative = backwards); keeps spinning until changed or stopped |
+| `left_motor.stop()` / `right_motor.stop()` | that wheel stops |
+| `left_motor.set_velocity(v, PERCENT)` + `left_motor.spin(FORWARD)` | velocity can also be set first, VEX-style; default 50 |
+| `left_motor.velocity(PERCENT)` | the velocity it was last told |
+
+Motor commands and drivetrain commands share the same wheels: a `drivetrain.drive_for(...)` stops any
+motor spin first, and `motor.spin` cancels an unfinished `drive(...)`/`turn(...)`.
+
+### Keyboard layout (shown on screen)
+| control | keys |
+|---|---|
+| left stick (axis3 up/down, axis4 left/right) | W / S, A / D |
+| right stick (axis2 up/down, axis1 left/right) | ↑ / ↓, ← / → |
+| buttons X, Y, A, B | I, J, L, K |
+| L1 / L2, R1 / R2 | Q / Z, E / C |
+| Up / Down / Left / Right buttons | T / G / F / H |

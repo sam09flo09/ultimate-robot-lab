@@ -79,6 +79,53 @@ export interface RunnerOptions {
   /** debugger: fires when the program halts (pause(), step(), or a run started paused).
    *  `line` is the line about to run (or the motion line still in progress); `vars` = the student's variables. */
   onPause?: (info: { line: number; vars: VarView[] }) => void;
+  /** controller: the live controller input. Read synchronously by controller.* calls.
+   *  Absent = a controller that is never touched (all axes 0, no buttons). */
+  input?: ControllerInput;
+  /** controller: fires once per run, the first time the program reads the controller
+   *  (the app uses it to show the on-screen controller and force 1× speed). */
+  onControllerUsed?: () => void;
+}
+
+// ---------------------------------------------------------------- controller (driver control)
+//   src/input/index.ts   export function createInputHub(opts: InputHubOptions): InputHub
+
+/** VEX-style controller layout. Axes are -100..100 (up/right positive):
+ *  axis1 = right stick X, axis2 = right stick Y, axis3 = left stick Y, axis4 = left stick X. */
+export type AxisName = "axis1" | "axis2" | "axis3" | "axis4";
+export type ButtonName = "buttonL1" | "buttonL2" | "buttonR1" | "buttonR2"
+  | "buttonUp" | "buttonDown" | "buttonLeft" | "buttonRight"
+  | "buttonX" | "buttonB" | "buttonY" | "buttonA";
+export const AXIS_NAMES: AxisName[] = ["axis1", "axis2", "axis3", "axis4"];
+export const BUTTON_NAMES: ButtonName[] = ["buttonL1", "buttonL2", "buttonR1", "buttonR2",
+  "buttonUp", "buttonDown", "buttonLeft", "buttonRight", "buttonX", "buttonB", "buttonY", "buttonA"];
+
+export interface ControllerState {
+  axes: Record<AxisName, number>;          // integers -100..100
+  buttons: Record<ButtonName, boolean>;
+}
+export interface ControllerInput {
+  /** Current state; must be cheap (called on every controller.* read). */
+  read(): ControllerState;
+}
+
+export type InputSourceKind = "keyboard" | "gamepad" | "touch";
+export interface InputHubOptions {
+  /** Element whose keyboard events count (keys are ignored while typing in an editor/input). */
+  keyTarget: Window | HTMLElement;
+  /** Container for the on-screen controller (two joysticks + buttons), shown on demand. */
+  touchHost: HTMLElement;
+}
+/** Merges keyboard + gamepad (Gamepad API) + on-screen touch controls into one ControllerInput.
+ *  Largest-magnitude axis value wins; a button is pressed if pressed on any source. */
+export interface InputHub extends ControllerInput {
+  /** Listen to inputs only while true (the app enables it while a program runs). */
+  setActive(on: boolean): void;
+  showTouchControls(show: boolean): void;
+  /** Which sources are currently connected/active (for the status chip). */
+  sources(): InputSourceKind[];
+  onChange(cb: () => void): () => void;   // fires when sources change (gamepad connected, etc.)
+  dispose(): void;
 }
 /** debugger: one row of the Variables panel. `value` is a short, safe repr (≤ ~80 chars). */
 export interface VarView {

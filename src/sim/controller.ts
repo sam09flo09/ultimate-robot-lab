@@ -92,6 +92,10 @@ export function createController(e: Engine): RobotController {
       if (on) e.magnetOn(); else e.magnetOff();
       return true;
     },
+    setWheelVelocities(_l: number, _r: number) {
+      // PLACEHOLDER — the sim agent implements differential drive here.
+      e.endMotion();
+    },
   };
   return c;
 }

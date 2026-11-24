@@ -71,6 +71,7 @@ export function fakeController(over: Partial<FakeState> = {}): { ctl: RobotContr
     penDown: (down) => { rec(`penDown(${down})`); return st.pen; },
     setPenColor: (c) => { rec(`setPenColor(${c})`); return st.pen; },
     magnet: (on) => { rec(`magnet(${on})`); return st.magnet; },
+    setWheelVelocities: (l, r) => { rec(`wheels(${l},${r})`); },
   };
   return { ctl, st };
 }
