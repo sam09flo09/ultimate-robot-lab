@@ -1,9 +1,20 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 // Relative base so the built site works from any folder or GitHub Pages sub-path.
 export default defineConfig({
   base: "./",
+  // match: the hidden frame that gives each match robot its own Skulpt is a second page
+  // (built to dist/src/match/engine/runnerFrame.html and precached like index.html).
+  build: {
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        runnerFrame: fileURLToPath(new URL("./src/match/engine/runnerFrame.html", import.meta.url)),
+      },
+    },
+  },
   plugins: [
     VitePWA({
       registerType: "autoUpdate",

@@ -16,6 +16,7 @@ import { a10CapstoneMaze } from "./a10-capstone-maze";
 import { a11FirstDriverProgram } from "./a11-first-driver-program";
 import { a12ArcadeDriveButtons } from "./a12-arcade-drive-buttons";
 import { a13ArmsAndClaws } from "./a13-arms-and-claws"; // arm
+import { a14MatchDay } from "./a14-match-day"; // match
 
 export const BUILT_IN_ACTIVITIES: Activity[] = [
   a01MeetYourRobot,
@@ -31,6 +32,7 @@ export const BUILT_IN_ACTIVITIES: Activity[] = [
   a09FunctionsColorDepot,
   a10CapstoneMaze,
   a13ArmsAndClaws, // arm: manipulators (Units 8 and 12), after the capstone
+  a14MatchDay, // match: autonomous vs driver control (stretch), after the driver-control and arm lessons
 ];
 
 export function getBuiltInActivity(id: string): Activity | undefined {

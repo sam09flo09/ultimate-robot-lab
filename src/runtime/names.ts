@@ -108,6 +108,7 @@ export const API_OBJECTS: ApiObject[] = [
 export const TOP_LEVEL = [
   "drivetrain", "distance", "front_eye", "down_eye", "bumper", "location", "pen", "magnet", "arm", "claw", "brain",
   "controller", "left_motor", "right_motor", "wait", "start", "print",
+  "competition", // match: competition(autonomous, driver_control)
 ];
 
 /** Python builtins/keywords students commonly use (for case hints and typo suggestions). */
@@ -115,6 +116,7 @@ export const PY_NAMES = [
   "True", "False", "None", "range", "len", "int", "float", "str", "abs", "round", "min", "max", "sum",
   "list", "dict", "bool", "input", "type", "math", "random", "import", "def", "while", "for", "if",
   "elif", "else", "return", "break", "continue", "and", "or", "not", "in", "pass", "main",
+  "autonomous", "driver_control", // match
 ];
 
 function driverObjects(): ApiObject[] {

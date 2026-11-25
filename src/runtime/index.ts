@@ -35,12 +35,18 @@ const LOG_CAP = 2000;
 /** Max onLine callbacks between two yields; more line changes are coalesced (tight loops). */
 const LINE_EMITS_PER_SLICE = 40;
 const MAIN_FILE = "<stdin>.py";
+const COMP_AND_START = "Use either start(main) or competition(autonomous, driver_control) as the last line, not both. A match program ends with competition(autonomous, driver_control).";
 
 const NEVER: Promise<never> = new Promise<never>(() => { /* never settles */ });
 
+/** A JS Error, also one made in another realm (iframe / vm context), where `instanceof Error` fails. */
+function isJsError(e: any): e is Error {
+  return e instanceof Error || (!!e && typeof e === "object" && typeof e.message === "string" && typeof e.name === "string" && !e.tp$name);
+}
+
 /** Modules students may import. Anything else gives a friendly ImportError. */
-function readFile(path: string): string {
-  const files = Sk.builtinFiles && Sk.builtinFiles.files;
+function readFile(sk: any, path: string): string {
+  const files = sk.builtinFiles && sk.builtinFiles.files;
   if (files && files[path] !== undefined) return files[path];
   throw "File not found: '" + path + "'";
 }
@@ -90,6 +96,23 @@ interface Ctx {
   awaiting: number;       // controller promises Python is currently waiting for
   lastSusp: any;          // most recent Skulpt suspension (for variables)
   controllerUsed: boolean; // driver control: the program has read the controller
+  // match: competition(autonomous, driver_control)
+  /** The Python call chain that is running right now (top level, autonomous() or driver_control()). */
+  chain: Chain;
+  /** nextPeriod() was asked for before competition() started (skip autonomous). */
+  periodReq: boolean;
+  comp: { phase: "auto" | "waiting" | "driver"; next: () => void } | null;
+}
+
+/** match: one independently resumable Python call chain. An abandoned chain never runs another statement. */
+interface Chain { abandoned: boolean; }
+
+/** Extra, non-contract options for createPythonRunner (used by the match engine). */
+export interface RunnerInternals {
+  /** match: run on this Skulpt instance (e.g. one loaded in a hidden iframe) instead of the page's global Sk. */
+  sk?: any;
+  /** match: after autonomous() returns, wait idle for nextPeriod() instead of starting driver_control() at once. */
+  waitForDriverPeriod?: boolean;
 }
 
 /** Driver control: one motor's state for the current run. */
@@ -101,19 +124,31 @@ interface MotorState {
   warned: boolean;        // the out-of-range warning was shown
 }
 
-export function createPythonRunner(opts: RunnerOptions): PythonRunner {
+export function createPythonRunner(opts: RunnerOptions, internals: RunnerInternals = {}): PythonRunner & { nextPeriod(): void } {
   const ctl: RobotController = opts.controller;
   let current: Ctx | null = null;
+  // The Skulpt instance in use: the page's global one, or (match) an isolated one. Shadows the global `Sk`.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let Sk: any = internals.sk ?? (globalThis as any).Sk;
+  /** debug/vars.ts reads the global Sk: point it at ours while it looks at our values. */
+  function vars(susp: any): VarView[] {
+    const g = globalThis as any;
+    if (g.Sk === Sk) return collectVars(susp);
+    const saved = g.Sk;
+    g.Sk = Sk;
+    try { return collectVars(susp); } finally { g.Sk = saved; }
+  }
 
   function run(source: string, runOpts: RunOptions = {}): Promise<RunResult> {
     if (current) stopCtx(current);
+    Sk = internals.sk ?? (globalThis as any).Sk;
     return new Promise<RunResult>((resolve) => {
       const ctx: Ctx = {
         stopped: false, settled: false, curLine: 0, steps: 0, startCalled: false,
         logCount: 0, logCapped: false, lastStepText: null, outBuf: "",
         emitted: 0, pendingLine: 0, sliceEmits: 0, lastYield: Date.now(),
         pauseReq: !!runOpts.startPaused, paused: false, haltNext: false, stepping: null, waiters: [], awaiting: 0, lastSusp: null,
-        controllerUsed: false,
+        controllerUsed: false, chain: { abandoned: false }, periodReq: false, comp: null,
         finish: (r) => {
           if (ctx.settled) return;
           ctx.settled = true;
@@ -123,7 +158,7 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
         },
       };
       current = ctx;
-      if (typeof Sk === "undefined") {
+      if (typeof Sk === "undefined" || !Sk) {
         ctx.finish({ status: "error", error: { line: 0, type: "Error", raw: "Skulpt not loaded", html: "<b>Error</b><br>The Python engine did not load. Reload the page." } });
         return;
       }
@@ -221,7 +256,7 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
     flushOutput(ctx);
     flushLine(ctx, true);
     if (ctx.curLine && ctx.curLine !== ctx.emitted) { ctx.emitted = ctx.curLine; opts.onLine(ctx.curLine); }
-    try { opts.onPause?.({ line: ctx.curLine, vars: collectVars(ctx.lastSusp) }); } catch (e) { console.error(e); }
+    try { opts.onPause?.({ line: ctx.curLine, vars: vars(ctx.lastSusp) }); } catch (e) { console.error(e); }
   }
 
   /** Run `fn` now, or when the program is resumed if it is paused. */
@@ -256,11 +291,11 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
     try {
       if (e && e.args && e.args.v && e.args.v.length) return String(Sk.ffi.remapToJs(e.args.v[0]));
     } catch { /* ignore */ }
-    if (e instanceof Error) return e.message;
+    if (isJsError(e)) return e.message;
     return String(e);
   }
   function toFriendly(ctx: Ctx, e: any, source: string): FriendlyError {
-    let type = (e && e.tp$name) ? String(e.tp$name) : (e instanceof Error ? (e.name === "RangeError" ? "RecursionError" : "Error") : "Error");
+    let type = (e && e.tp$name) ? String(e.tp$name) : (isJsError(e) ? (e.name === "RangeError" ? "RecursionError" : "Error") : "Error");
     let raw = errText(e);
     if (type === "ExternalError" && /call stack/i.test(raw)) type = "RecursionError";
     if (/suspend/i.test(raw) && /cannot|can't|unhandled/i.test(raw)) {
@@ -346,18 +381,19 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
   // ---------------------------------------------------------------- building the API
 
   function execute(ctx: Ctx, source: string) {
-    const isStopErr = (e: any) => e instanceof Error && e.message === "STOPPED";
+    const isStopErr = (e: any) => isJsError(e) && e.message === "STOPPED"; // match: may come from another realm
     const halt = () => Sk.misceval.promiseToSuspension(NEVER);
 
     /** Await a controller promise without letting a stopped run resume. STOPPED -> stopped result. */
     function guard<T>(p: Promise<T>): Promise<T> {
+      const chain = ctx.chain; // match: an interrupted autonomous() never gets its result
       ctx.awaiting++;
       return new Promise<T>((res, rej) => {
         p.then(
-          (v) => { ctx.awaiting--; whenRunning(ctx, () => { ctx.lastYield = Date.now(); res(v); }); },
+          (v) => { ctx.awaiting--; if (chain.abandoned) return; whenRunning(ctx, () => { ctx.lastYield = Date.now(); res(v); }); },
           (e) => {
             ctx.awaiting--;
-            if (ctx.stopped) return;
+            if (ctx.stopped || chain.abandoned) return;
             if (isStopErr(e)) { stopCtx(ctx); return; }
             whenRunning(ctx, () => rej(e));
           },
@@ -377,7 +413,7 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
     /** Wraps a JS implementation as a Python callable with friendly argument-count checks. */
     function api(spec: Spec, impl: (args: any[], kw: Record<string, any>) => any, method = true) {
       const code: any = function (kwarr: any[], tuple: any) {
-        if (ctx.stopped) return halt();
+        if (ctx.stopped || ctx.chain.abandoned) return halt(); // match: abandoned = autonomous() after its time ran out
         const args: any[] = tuple.v.slice(method ? 1 : 0);
         const kw: Record<string, any> = {};
         for (let i = 0; i < kwarr.length; i += 2) {
@@ -778,8 +814,78 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
       if (fn === undefined || !Sk.builtin.checkCallable(fn)) {
         oops("TypeError", "start() needs the name of your function, like start(main), with no () after main. You gave " + argName(fn) + ".");
       }
+      if (ctx.comp) oops("RuntimeError", COMP_AND_START);
       ctx.startCalled = true;
       return Sk.misceval.callsimOrSuspendArray(fn, []);
+    }, false);
+
+    // ---- match: competition(autonomous, driver_control)
+    /** Stop the wheels and the arm (end of autonomous). */
+    function stopRobot() {
+      motorsOff();
+      try { ctl.stop(); if (ctl.armAvailable()) ctl.armSpin(0); } catch { /* ignore */ }
+    }
+    /** Run fn() as its own resumable chain (so autonomous() can be dropped without touching the rest). */
+    function runChain(fn: any): { chain: Chain; done: Promise<unknown> } {
+      const chain: Chain = { abandoned: false };
+      const done = Sk.misceval.asyncToPromise(() => {
+        ctx.chain = chain;
+        ctx.lastYield = Date.now();
+        return Sk.misceval.callsimOrSuspendArray(fn, []);
+      }, handlersFor(chain));
+      return { chain, done };
+    }
+    const CS = { label: "competition", params: ["autonomous", "driver_control"], required: 2, example: "competition(autonomous, driver_control)" };
+    const competitionFn = api(CS, (a) => {
+      const [auto, drv] = a;
+      if (auto === Sk.builtin.none.none$ || drv === Sk.builtin.none.none$) {
+        oops("TypeError", "Write competition(autonomous, driver_control) with no () after the function names. With the (), Python runs the function straight away and gives competition its result (None) instead.");
+      }
+      for (const [fn, what] of [[auto, "autonomous"], [drv, "driver_control"]] as const) {
+        if (!Sk.builtin.checkCallable(fn)) {
+          oops("TypeError", "competition() needs the names of your two functions, autonomous first: competition(autonomous, driver_control). The " + what + " value you gave is " + argName(fn) + ", which is not a function.");
+        }
+      }
+      if (ctx.comp) oops("RuntimeError", "competition() can only be used once, on the last line of your program.");
+      if (ctx.startCalled) oops("RuntimeError", COMP_AND_START);
+      ctx.startCalled = true;
+      let resolveAll!: () => void, rejectAll!: (e: unknown) => void;
+      const all = new Promise<void>((res, rej) => { resolveAll = res; rejectAll = rej; });
+      let autoChain: Chain | null = null;
+      const comp: NonNullable<Ctx["comp"]> = { phase: "auto", next: () => { /* set below */ } };
+      ctx.comp = comp;
+      const startDriver = () => {
+        if (comp.phase === "driver" || ctx.stopped) return;
+        comp.phase = "driver";
+        Promise.resolve().then(() => whenRunning(ctx, () => {
+          step("driver_control()");
+          runChain(drv).done.then(() => resolveAll(), (e) => { if (!ctx.stopped) rejectAll(e); });
+        }));
+      };
+      comp.next = () => {
+        if (comp.phase === "auto") {
+          if (autoChain) autoChain.abandoned = true;
+          stopRobot();
+          log(ctx, "Autonomous time is up: autonomous() stopped and driver_control() started.", "warn");
+          startDriver();
+        } else if (comp.phase === "waiting") startDriver();
+      };
+      Promise.resolve().then(() => {
+        if (ctx.stopped) return;
+        if (ctx.periodReq) { comp.phase = "waiting"; startDriver(); return; }
+        step("autonomous()");
+        const r = runChain(auto);
+        autoChain = r.chain;
+        r.done.then(() => {
+          if (r.chain.abandoned || ctx.stopped) return;
+          if (internals.waitForDriverPeriod) {
+            comp.phase = "waiting";
+            stopRobot();
+            log(ctx, "autonomous() finished. The robot waits for the driver control period.", "step");
+          } else startDriver();
+        }, (e) => { if (!r.chain.abandoned && !ctx.stopped) rejectAll(e); });
+      });
+      return Sk.misceval.promiseToSuspension(all.then(() => none()));
     }, false);
 
     // ---- install
@@ -787,12 +893,12 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
     Object.assign(Sk.builtins, {
       drivetrain, distance, front_eye: eye("front_eye"), down_eye: eye("down_eye"), bumper, location,
       pen, magnet, arm, claw, brain, controller, left_motor: motorObject("left_motor"), right_motor: motorObject("right_motor"),
-      wait: waitFn, start: startFn,
+      wait: waitFn, start: startFn, competition: competitionFn,
     });
 
     Sk.configure({
       output: (t: string) => onOutput(ctx, String(t)),
-      read: readFile,
+      read: (path: string) => readFile(Sk, path),
       __future__: Sk.python3,
       execLimit: null,
       // Skulpt 1.2's yieldLimit has a bug: after a yield inside a function's while loop, the code after
@@ -803,6 +909,7 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
       killableFor: true,
       debugging: true,
       breakpoints: (filename: string, lineno: number) => {
+        if (ctx.chain.abandoned) return true; // match: suspend now; its handler drops it
         onBreakpoint(ctx, filename, lineno);
         if (wantsHalt(ctx, filename, lineno)) { ctx.haltNext = true; return true; }
         return !ctx.stopped && Date.now() - ctx.lastYield > YIELD_MS;
@@ -811,38 +918,56 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
       inputfunTakesPrompt: true,
     });
 
-    const handlers = {
-      "*": (r: any) => {
-        if (ctx.stopped) return NEVER;
-        flushLine(ctx, true);
-        ctx.lastSusp = r;
-        const type = r && r.data && r.data.type;
-        if ((type === "Sk.debug" || type === "Sk.delay") && ctx.haltNext) {
-          // debugger: halt here until resume() / step(); never settles after stop().
-          ctx.haltNext = false;
-          enterPause(ctx);
-          return new Promise((res, rej) => {
-            whenRunning(ctx, () => {
-              ctx.lastYield = Date.now();
-              try { res(r.resume()); } catch (e) { rej(e); }
+    /** Suspension handlers for one call chain. Every resume marks `chain` as the one running (match:
+     *  so an abandoned autonomous() is recognised at its very next statement or command). */
+    function handlersFor(chain: Chain) {
+      return {
+        "*": (r: any) => {
+          if (ctx.stopped || chain.abandoned) return NEVER;
+          flushLine(ctx, true);
+          ctx.lastSusp = r;
+          const type = r && r.data && r.data.type;
+          if ((type === "Sk.debug" || type === "Sk.delay") && ctx.haltNext) {
+            // debugger: halt here until resume() / step(); never settles after stop().
+            ctx.haltNext = false;
+            enterPause(ctx);
+            return new Promise((res, rej) => {
+              whenRunning(ctx, () => {
+                if (chain.abandoned) return;
+                ctx.chain = chain;
+                ctx.lastYield = Date.now();
+                try { res(r.resume()); } catch (e) { rej(e); }
+              });
             });
-          });
-        }
-        if (type === "Sk.debug" || type === "Sk.delay" || type === "Sk.yield") {
-          // Give the browser (and the app's sim loop) a turn, then carry on.
-          return new Promise((res, rej) => {
-            setTimeout(() => {
-              if (ctx.stopped) return;
-              ctx.lastYield = Date.now();
-              try { res(r.resume()); } catch (e) { rej(e); }
-            }, 0);
-          });
-        }
-        return undefined; // Sk.promise etc: default handling (our promises are guarded)
-      },
-    };
+          }
+          if (type === "Sk.debug" || type === "Sk.delay" || type === "Sk.yield") {
+            // Give the browser (and the app's sim loop) a turn, then carry on.
+            return new Promise((res, rej) => {
+              setTimeout(() => {
+                if (ctx.stopped || chain.abandoned) return;
+                ctx.chain = chain;
+                ctx.lastYield = Date.now();
+                try { res(r.resume()); } catch (e) { rej(e); }
+              }, 0);
+            });
+          }
+          if (type === "Sk.promise") {
+            // Our controller promises are guarded; resume here so we know which chain runs.
+            const resume = (key: "result" | "error", v: unknown) => {
+              if (ctx.stopped || chain.abandoned) return NEVER;
+              ctx.chain = chain;
+              r.data[key] = v;
+              return r.resume();
+            };
+            return r.data.promise.then((v: unknown) => resume("result", v), (e: unknown) => resume("error", e));
+          }
+          return undefined;
+        },
+      };
+    }
 
-    Sk.misceval.asyncToPromise(() => Sk.importMainWithBody("<stdin>", false, source, true), handlers).then(
+    const top = ctx.chain;
+    Sk.misceval.asyncToPromise(() => { ctx.chain = top; return Sk.importMainWithBody("<stdin>", false, source, true); }, handlersFor(top)).then(
       () => {
         if (ctx.stopped) return;
         flushOutput(ctx);
@@ -853,7 +978,7 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
       (e: any) => {
         if (ctx.stopped) return;
         flushOutput(ctx);
-        if (e instanceof Error && e.message === "STOPPED") { stopCtx(ctx); return; }
+        if (isJsError(e) && e.message === "STOPPED") { stopCtx(ctx); return; }
         ctx.finish({ status: "error", error: toFriendly(ctx, e, source) });
       },
     );
@@ -887,9 +1012,16 @@ export function createPythonRunner(opts: RunnerOptions): PythonRunner {
       release(ctx);
     },
     get paused() { return !!current && current.paused; },
+    // ---- match
+    nextPeriod() {
+      const ctx = current;
+      if (!ctx || ctx.stopped) return;
+      if (ctx.comp) ctx.comp.next();
+      else ctx.periodReq = true;
+    },
     variables(): VarView[] {
       const ctx = current;
-      return ctx ? collectVars(ctx.lastSusp) : [];
+      return ctx ? vars(ctx.lastSusp) : [];
     },
   };
 }

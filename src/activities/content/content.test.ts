@@ -229,7 +229,7 @@ describe("starter code does not already complete its step", () => {
 
 describe("driver-control activities", () => {
   it("are the two new ones", () => {
-    expect([...DRIVER_ACTIVITIES].sort()).toEqual(["a11-first-driver-program", "a12-arcade-drive-buttons"]);
+    expect([...DRIVER_ACTIVITIES].sort()).toEqual(["a11-first-driver-program", "a12-arcade-drive-buttons", "a14-match-day"]); // match: a14
   });
 
   it("scriptedInput replays the timeline by sim time", () => {
@@ -267,7 +267,7 @@ describe("driver-control activities", () => {
   });
 
   // Runs now: code checks only (no run needed).
-  for (const id of ["a11-first-driver-program", "a12-arcade-drive-buttons"]) {
+  for (const id of ["a11-first-driver-program", "a12-arcade-drive-buttons", "a14-match-day" /* match */]) {
     const a = getBuiltInActivity(id)!;
     for (const step of a.steps) {
       if (step.checks.length === 0) continue;

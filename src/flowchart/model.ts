@@ -52,7 +52,8 @@ const PY_KEYWORDS = ["False", "None", "True", "and", "as", "assert", "async", "a
   "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda",
   "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield", "print", "int", "float", "str",
   "len", "range", "abs", "round", "min", "max", "list", "dict", "set", "bool", "type", "input", "open", "exec", "eval"];
-const API_NAMES = ["main", "start", "wait", "math", "random", "drivetrain", "distance", "front_eye", "down_eye", "bumper",
+const API_NAMES = ["main", "start", "wait", "competition", "autonomous", "driver_control", // match
+  "math", "random", "drivetrain", "distance", "front_eye", "down_eye", "bumper",
   "location", "pen", "magnet", "brain", "controller", "left_motor", "right_motor",
   "FORWARD", "REVERSE", "LEFT", "RIGHT", "MM", "INCHES", "DEGREES", "SECONDS", "MSEC", "PERCENT", "UP", "DOWN",
   "BOOST", "DROP", "X", "Y", ...COLORS];

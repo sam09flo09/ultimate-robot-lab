@@ -1,9 +1,9 @@
 // Workspace helpers that work both headless (tests) and in the injected editor.
 import * as Blockly from "blockly";
-import { HAT_TYPE, registerBlocks } from "./definitions";
+import { AUTO_HAT_TYPE, DRIVER_HAT_TYPE, HAT_TYPE, registerBlocks } from "./definitions";
 
 const ORPHAN = "ORPHANED_BLOCK"; // same reason id Blockly.Events.disableOrphans uses
-const ROOTS = new Set([HAT_TYPE, "procedures_defnoreturn", "procedures_defreturn"]);
+const ROOTS = new Set([HAT_TYPE, AUTO_HAT_TYPE, DRIVER_HAT_TYPE /* match */, "procedures_defnoreturn", "procedures_defreturn"]);
 
 /** Exactly one non-deletable "when started" hat. */
 export function ensureHat(ws: Blockly.Workspace): Blockly.Block {

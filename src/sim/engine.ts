@@ -6,7 +6,7 @@ import type { ColorName, GoalResult, RobotConfig, SimEvent, SimState, World, Wor
 import { effectiveConfig, robotStats } from "./robotConfig"; // builder
 import {
   type Body, type Hit, BOX, CIRCLE, clean, collide, makeBox, makeCircle, makeWallBody,
-  normDeg, pointInZone, round6, setBoxAngle,
+  normDeg, pointInZone, rayBody, round6, setBoxAngle,
 } from "./geometry";
 import { castRay, DISTANCE_MAX, FRONT_RANGE, objectInFront } from "./sensors";
 import { evaluateGoals, isEndStateGoal } from "./goals";
@@ -114,6 +114,26 @@ export class Engine {
   private sensorOffset = 0;        // mm right of centre along the front edge
   private stallNow = false;        // builder: pushed against a too-heavy object this substep
   private stalledUntil = -1;
+
+  // match: two-robot matches (src/match/engine). Both stay empty/null for a normal single-robot sim.
+  /** match: extra solid, immovable bodies (the other robot), updated by the match before each substep. */
+  extraStatics: Body[] = [];
+  /** match: true if object i is held (magnet or claw) by ANOTHER robot: it is left alone here. */
+  foreignHeld: ((i: number) => boolean) | null = null;
+  /** match */ isForeign(i: number): boolean { return this.foreignHeld !== null && this.foreignHeld(i); }
+
+  /** match: make this engine use `other`'s objects (positions, bodies, stacks) instead of its own copies. */
+  shareObjectsWith(other: Engine): void {
+    const s = this.state;
+    s.objects = other.state.objects;
+    this.objBodies = other.objBodies;
+    this.movable = other.movable;
+    this.awake = other.awake;
+    this.statics = other.statics;
+    this.carryIndex = -1;
+    s.carrying = null;
+    this.arm.shareStack(other.arm);
+  }
 
   constructor(world: World, config?: Partial<RobotConfig> | null) {
     this.world = world;
@@ -345,7 +365,7 @@ export class Engine {
     const rad = (r.heading * Math.PI) / 180;
     const ux = clean(Math.sin(rad)), uy = clean(Math.cos(rad));
     const i = objectInFrontIdx(this, ux, uy, true);
-    if (i < 0) return;
+    if (i < 0 || this.isForeign(i)) return; // match: the other robot holds it
     const o = s.objects[i];
     this.carryIndex = i;
     this.carryRel = (o.rotation ?? 0) - r.heading;
@@ -579,14 +599,18 @@ export class Engine {
   /* arm: public */ settleObjects(): void {
     const bodies = this.objBodies, n = bodies.length, hit = this.hit, statics = this.statics;
     for (let i = 0; i < n; i++) {
-      if (!this.awake[i] || i === this.carryIndex || !this.movable[i]) continue;
+      if (!this.awake[i] || i === this.carryIndex || !this.movable[i] || this.isForeign(i)) continue; // match
       const bi = bodies[i];
       for (let k = 0; k < statics.length; k++) {
         if (collide(statics[k], bi, hit)) this.moveObj(i, hit.nx * hit.depth, hit.ny * hit.depth);
       }
+      const ex = this.extraStatics; // match: the other robot is solid to objects too
+      for (let k = 0; k < ex.length; k++) {
+        if (collide(ex[k], bi, hit)) this.moveObj(i, hit.nx * hit.depth, hit.ny * hit.depth);
+      }
       this.clampToBorder(i);
       for (let j = 0; j < n; j++) {
-        if (j === i || j === this.carryIndex || !this.movable[j]) continue;
+        if (j === i || j === this.carryIndex || !this.movable[j] || this.isForeign(j)) continue; // match
         if (collide(bi, bodies[j], hit)) {
           const h = hit.depth / 2;
           this.moveObj(i, -hit.nx * h, -hit.ny * h);
@@ -608,7 +632,7 @@ export class Engine {
       for (let it = 0; it < ITERATIONS; it++) {
         let pushed = false;
         for (let i = 0; i < n; i++) {
-          if (!this.movable[i] || i === this.carryIndex || !this.canPush(i)) continue; // builder: too heavy → stuck
+          if (!this.movable[i] || i === this.carryIndex || !this.canPush(i) || this.isForeign(i)) continue; // builder: too heavy → stuck; match: held by the other robot
           if (collide(this.robotBox, bodies[i], hit)) {
             const d = hit.depth + 1e-4;
             this.moveObj(i, hit.nx * d, hit.ny * d);
@@ -621,7 +645,7 @@ export class Engine {
       }
       // anything still overlapping is stuck: it pushes the robot back
       for (let i = 0; i < n; i++) {
-        if (!this.movable[i] || i === this.carryIndex) continue;
+        if (!this.movable[i] || i === this.carryIndex || this.isForeign(i)) continue; // match
         if (collide(this.robotBox, bodies[i], hit)) {
           r.x -= hit.nx * hit.depth; r.y -= hit.ny * hit.depth;
           this.robotBox.x = r.x; this.robotBox.y = r.y;
@@ -640,6 +664,14 @@ export class Engine {
       let moved = false;
       for (let k = 0; k < statics.length; k++) {
         if (collide(box, statics[k], hit)) {
+          r.x -= hit.nx * hit.depth; r.y -= hit.ny * hit.depth;
+          box.x = r.x; box.y = r.y;
+          if (hit.depth > 1e-9) moved = true;
+        }
+      }
+      const ex = this.extraStatics; // match: the other robot is an immovable obstacle
+      for (let k = 0; k < ex.length; k++) {
+        if (collide(box, ex[k], hit)) {
           r.x -= hit.nx * hit.depth; r.y -= hit.ny * hit.depth;
           box.x = r.x; box.y = r.y;
           if (hit.depth > 1e-9) moved = true;
@@ -665,6 +697,10 @@ export class Engine {
     let worst = 0;
     for (let k = 0; k < statics.length; k++) {
       if (collide(box, statics[k], hit) && hit.depth > worst) worst = hit.depth;
+    }
+    const ex = this.extraStatics; // match
+    for (let k = 0; k < ex.length; k++) {
+      if (collide(box, ex[k], hit) && hit.depth > worst) worst = hit.depth;
     }
     const e = this.borderExtent();
     const ox = Math.abs(r.x) + e - this.halfW, oy = Math.abs(r.y) + e - this.halfH;
@@ -692,6 +728,10 @@ export class Engine {
         }
       }
     }
+    const ex = this.extraStatics; // match: bumping the other robot presses the bumper (not a wall hit)
+    for (let k = 0; k < ex.length; k++) {
+      if (collide(box, ex[k], hit, PAD) && hit.depth > PAD - 1 && hit.nx * ux + hit.ny * uy > FRONT) bumper = true;
+    }
     // border (outward normals +x, -x, +y, -y)
     const ext = this.borderExtent();
     const gx = this.halfW - ext, gy = this.halfH - ext;
@@ -709,7 +749,7 @@ export class Engine {
     if (!bumper) {
       const bodies = this.objBodies;
       for (let i = 0; i < bodies.length; i++) {
-        if (!this.movable[i] || i === this.carryIndex) continue;
+        if (!this.movable[i] || i === this.carryIndex || this.isForeign(i)) continue; // match
         if (collide(this.robotBox, bodies[i], hit, PAD) && hit.depth > PAD - 1 && hit.nx * ux + hit.ny * uy > FRONT) { bumper = true; break; }
       }
     }
@@ -786,7 +826,10 @@ export class Engine {
     const rad = (r.heading * Math.PI) / 180;
     const ux = clean(Math.sin(rad)), uy = clean(Math.cos(rad));
     const so = this.sensorOrigin(ux, uy); // builder: sensorOffset
-    return castRay(so.x, so.y, ux, uy, this.halfW, this.halfH, this.statics, this.objBodies, this.carryIndex >= 0 ? this.carryIndex : this.arm.heldIndex /* arm */);
+    let t = castRay(so.x, so.y, ux, uy, this.halfW, this.halfH, this.statics, this.objBodies, this.carryIndex >= 0 ? this.carryIndex : this.arm.heldIndex /* arm */);
+    const ex = this.extraStatics; // match: the distance sensor sees the other robot
+    for (let k = 0; k < ex.length; k++) { const tk = rayBody(so.x, so.y, ux, uy, ex[k]); if (tk < t) t = tk; }
+    return t;
   }
 
   private updateDistanceRay(): void {

@@ -125,6 +125,9 @@ function nameTip(nm: string, source: string): string {
     return "Python doesn't know the name " + code(nm) + " by itself. It belongs to " +
       owners.map((o) => code(o.path)).join(" / ") + ", so write it with a dot: " + code(ex) + ".";
   }
+  if (nm === "autonomous" || nm === "driver_control") { // match
+    return "Python doesn't know the name " + code(nm) + ". <code>competition(autonomous, driver_control)</code> needs two functions: check that <code>def " + nm + "():</code> is spelled the same and comes before <code>competition(...)</code>.";
+  }
   if (nm === "main") {
     return "Python doesn't know the name <code>main</code>. <code>start(main)</code> needs a function called main: check that <code>def main():</code> is spelled the same and comes before <code>start(main)</code>.";
   }
@@ -276,6 +279,15 @@ export function precheck(source: string): FriendlyError | null {
   const lines = source.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i].replace(/#.*$/, "");
+    const c = l.match(/^\s*competition\s*\(.*?([A-Za-z_]\w*)\s*\(\s*\)/); // match: competition(autonomous(), ...)
+    if (c) {
+      const fn = c[1];
+      return {
+        line: i + 1, type: "TypeError",
+        raw: "competition(...) calls " + fn + " too early",
+        html: "<b>Line " + (i + 1) + ": TypeError</b><br>Write " + code("competition(autonomous, driver_control)") + " with no <code>()</code> after the function names. With the <code>()</code>, Python would run " + esc(fn) + " straight away and give <code>competition</code> its result instead of the function.",
+      };
+    }
     const m = l.match(/^\s*start\s*\(\s*([A-Za-z_]\w*)\s*\(\s*\)\s*\)/);
     if (m) {
       const fn = m[1];

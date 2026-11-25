@@ -8,6 +8,40 @@ import { ARM_HELPER_LINES } from "./a13-arms-and-claws"; // arm
 
 const prog = (...lines: string[]) => lines.join("\n") + "\n";
 
+// match: a14 "Match day" (red side of Silo Sprint)
+const MATCH_HELPER = [
+  "import math",
+  "",
+  "def go_to(x, y, stop_short):",
+  "    dx = x - location.position(X, MM)",
+  "    dy = y - location.position(Y, MM)",
+  "    drivetrain.turn_to_heading(math.degrees(math.atan2(dx, dy)) % 360, DEGREES)",
+  "    drivetrain.drive_for(FORWARD, math.sqrt(dx * dx + dy * dy) - stop_short, MM)",
+  "",
+  "def autonomous():",
+  "    # 1. grab the nearest disk with the magnet",
+  "    go_to(-1000, 900, 125)",
+  "    magnet.energize(BOOST)",
+  "    # 2. carry it into the bin, drop it and back away",
+  "    go_to(-1450, 800, 0)",
+  "    magnet.energize(DROP)",
+  "    drivetrain.drive_for(REVERSE, 250, MM)",
+  "",
+];
+const MATCH_PLAN = prog(...MATCH_HELPER, "def driver_control():", "    pass", "", "competition(autonomous, driver_control)");
+const MATCH_FULL = prog(
+  ...MATCH_HELPER,
+  "def driver_control():",
+  "    while True:",
+  "        left_motor.spin(FORWARD, controller.axis3.position(), PERCENT)",
+  "        right_motor.spin(FORWARD, controller.axis2.position(), PERCENT)",
+  "        if controller.buttonA.pressing():",
+  "            magnet.energize(BOOST)",
+  "        wait(20, MSEC)",
+  "",
+  "competition(autonomous, driver_control)",
+);
+
 const DEPOT = prog(
   "# Colour Depot: carry every disk to the bin of the same colour.",
   "import math",
@@ -498,6 +532,21 @@ export const SOLUTIONS: Record<string, Record<string, string>> = {
     ),
     "smart-solver": RIGHT_HAND,
     "new-maze": RIGHT_HAND,
+  },
+  // match
+  "a14-match-day": {
+    "two-periods": prog(
+      "def autonomous():",
+      "    drivetrain.drive_for(FORWARD, 400, MM)",
+      "",
+      "def driver_control():",
+      "    pass",
+      "",
+      "competition(autonomous, driver_control)",
+    ),
+    "plan-autonomous": MATCH_PLAN,
+    "driver-loop": MATCH_FULL,
+    "match-ready": MATCH_FULL,
   },
 };
 

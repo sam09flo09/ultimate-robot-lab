@@ -121,6 +121,8 @@ export const METHOD_DOCS: ApiDoc[] = [
 export const FUNCTION_DOCS: ApiDoc[] = [
   { name: "wait", kind: "function", signature: "(time, units=SECONDS)", description: "Do nothing for a while. SECONDS or MSEC.", example: "wait(1, SECONDS)" },
   { name: "start", kind: "function", signature: "(function)", description: "Runs your program. Last line, not indented, no () after main.", example: "start(main)" },
+  // match
+  { name: "competition", kind: "function", signature: "(autonomous, driver_control)", description: "For matches: runs autonomous() (the robot drives itself), then driver_control() (you drive). Use it instead of start(main), as the last line, with no () after the names.", example: "competition(autonomous, driver_control)" },
   { name: "print", kind: "function", signature: "(value, ...)", description: "Write in the Steps log.", example: "print(\"x is\", x)" },
 ];
 

@@ -187,6 +187,10 @@ export function buildToolbox(hw: ToolboxHardware): Blockly.utils.toolbox.Toolbox
         blk("robot_wait_until"),
         blk("robot_repeat_until"),
         blk("robot_break"),
+        // match: competition program shape
+        label("Match · autonomous, then driver control"),
+        blk("robot_when_autonomous"),
+        blk("robot_when_driver_control"),
       ],
     },
     {
@@ -254,6 +258,8 @@ const EXTRA_WORDS: Record<string, string> = {
   robot_arm_position: "arm angle degrees",
   robot_claw: "claw grab grip pick up release drop gripper end effector",
   robot_claw_holding: "claw holding grab gripper",
+  robot_when_autonomous: "match competition autonomous auto period hat start",
+  robot_when_driver_control: "match competition driver control period hat start teleop",
 };
 function blockWords(type: string): string {
   const def = BLOCK_DEFS.find((d) => d.type === type);

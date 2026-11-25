@@ -6,7 +6,7 @@
 // <= the line's indentation (so `else:` belongs to its `if`, and a dedent leaves inner blocks).
 import * as Blockly from "blockly";
 import { PythonGenerator, pythonGenerator, Order } from "blockly/python";
-import { HAT_TYPE } from "./definitions";
+import { AUTO_HAT_TYPE, DRIVER_HAT_TYPE, HAT_TYPE } from "./definitions";
 import { AXIS_NAMES, BUTTON_NAMES } from "../core/modules";
 
 const M = "\u0001";
@@ -18,6 +18,7 @@ class RobotPythonGenerator extends PythonGenerator {
     super("Python");
     this.INDENT = INDENT;
     Object.assign(this.forBlock, pythonGenerator.forBlock);
+    this.addReservedWords("competition,autonomous,driver_control"); // match: names the competition shape defines
   }
   override scrub_(block: Blockly.Block, code: string, thisOnly?: boolean): string {
     if (!block.outputConnection) code = `${M}${block.id}${M}\n` + code;
@@ -153,10 +154,16 @@ export function generateProgram(ws: Blockly.Workspace): GeneratedProgram {
   g.init(ws);
   const tops = ws.getTopBlocks(true);
   const hat = tops.find((b) => b.type === HAT_TYPE) ?? null;
+  // match: "when autonomous" / "when driver control" hats switch to the competition program shape
+  const autoHat = tops.find((b) => b.type === AUTO_HAT_TYPE && b.isEnabled()) ?? null;
+  const driverHat = tops.find((b) => b.type === DRIVER_HAT_TYPE && b.isEnabled()) ?? null;
+  const competition = !!(autoHat || driverHat);
   for (const b of tops) {
     if (PROC_DEFS.has(b.type) && b.isEnabled()) g.blockToCode(b);
   }
   const mainBody = hat ? g.statementToCode(hat, "DO") : "";
+  const autoBody = autoHat ? g.statementToCode(autoHat, "DO") : "";
+  const driverBody = driverHat ? g.statementToCode(driverHat, "DO") : "";
   const defs = g.takeDefinitions();
   const varNames = Blockly.Variables.allUsedVarModels(ws).map((v) => g.getVariableName(v.getId()));
   g.finish("");
@@ -168,6 +175,19 @@ export function generateProgram(ws: Blockly.Workspace): GeneratedProgram {
   if (imports.length) parts.push([...new Set(imports)].sort().join("\n"));
   if (varNames.length) parts.push(varNames.map((n) => `${n} = 0`).join("\n"));
   for (const fn of funcs) parts.push(`${M}${M}\n` + fn.replace(/\n+$/, ""));
+  if (competition) {
+    // match: the "when started" blocks (if any) run first as setup, then competition(...)
+    const fnDef = (name: string, id: string | null, bodyCode: string) => {
+      let d = `${M}${id ?? ""}${M}\ndef ${name}():\n`;
+      if (varNames.length) d += `${INDENT}global ${varNames.join(", ")}\n`;
+      return (d + (bodyCode || `${INDENT}pass\n`)).replace(/\n+$/, "");
+    };
+    if (mainBody) parts.push(fnDef("main", null, mainBody));
+    parts.push(fnDef("autonomous", autoHat?.id ?? null, autoBody));
+    parts.push(fnDef("driver_control", driverHat?.id ?? null, driverBody));
+    const tail = (mainBody ? `${M}${M}\nmain()\n` : `${M}${M}\n`) + "competition(autonomous, driver_control)\n";
+    return stripMarkers(parts.join("\n\n") + "\n\n" + tail);
+  }
   let main = `${M}${M}\ndef main():\n`;
   if (varNames.length) main += `${INDENT}global ${varNames.join(", ")}\n`;
   main += mainBody || `${INDENT}pass\n`;

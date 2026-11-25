@@ -3,6 +3,10 @@
 import * as Blockly from "blockly";
 
 export const HAT_TYPE = "robot_when_started";
+/** match: the two competition hats. With either on the workspace the program ends in
+ *  competition(autonomous, driver_control) instead of start(main). */
+export const AUTO_HAT_TYPE = "robot_when_autonomous";
+export const DRIVER_HAT_TYPE = "robot_when_driver_control";
 
 type Opt = [string, string];
 const DIR_FR: Opt[] = [["forward", "FORWARD"], ["reverse", "REVERSE"]];
@@ -48,6 +52,17 @@ export const BLOCK_DEFS: Record<string, unknown>[] = [
     type: HAT_TYPE, message0: "when started %1 %2",
     args0: [{ type: "input_dummy" }, stmt("DO")],
     style: "rl_start", tooltip: "Your program starts here. Snap blocks underneath.",
+  },
+  // match: competition program shape
+  {
+    type: AUTO_HAT_TYPE, message0: "when autonomous %1 %2",
+    args0: [{ type: "input_dummy" }, stmt("DO")],
+    style: "rl_start", tooltip: "Match: the robot drives itself here during the autonomous period. Then 'when driver control' starts.",
+  },
+  {
+    type: DRIVER_HAT_TYPE, message0: "when driver control %1 %2",
+    args0: [{ type: "input_dummy" }, stmt("DO")],
+    style: "rl_start", tooltip: "Match: runs after autonomous. Read the controller here (usually inside a forever loop).",
   },
   // ------------------------------------------------------------ drivetrain
   { type: "robot_drive_for", message0: "drive %1 for %2 %3 %4 wait", args0: [dd("DIR", DIR_FR), num("DIST"), dd("UNITS", DIST_UNITS), waitBox], ...STMT, style: "rl_drive", tooltip: "Drive a set distance. Untick 'wait' to keep going with the next block straight away." },
