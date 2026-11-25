@@ -102,11 +102,18 @@ export class ArmSystem {
   heldIndex = -1;
   velocity = 50;
   private e: Engine;
-  private support = new Int32Array(0);
-  private relX = new Float64Array(0);
-  private relY = new Float64Array(0);
+  /** Stack bookkeeping. match: kept in one object so two robots' arms can share the same objects' stacks. */
+  private st: { support: Int32Array; relX: Float64Array; relY: Float64Array; order: number[] } =
+    { support: new Int32Array(0), relX: new Float64Array(0), relY: new Float64Array(0), order: [] };
+  private get support(): Int32Array { return this.st.support; }
+  private set support(v: Int32Array) { this.st.support = v; }
+  private get relX(): Float64Array { return this.st.relX; }
+  private set relX(v: Float64Array) { this.st.relX = v; }
+  private get relY(): Float64Array { return this.st.relY; }
+  private set relY(v: Float64Array) { this.st.relY = v; }
   /** riders (objects resting on other objects), in the order they must be updated */
-  private order: number[] = [];
+  private get order(): number[] { return this.st.order; }
+  private set order(v: number[]) { this.st.order = v; }
   private holdOffset = 0;   // held object's bottom minus the claw height
   private holdRot = 0;      // held box rotation minus robot heading
   private motion: (Resolver & { target: number }) | null = null;
@@ -123,6 +130,22 @@ export class ArmSystem {
   }
 
   private get arm(): ArmState | undefined { return this.e.state.arm; }
+
+  /** match: use `other`'s stack bookkeeping (same shared objects), or a private copy again (null). */
+  shareStack(other: ArmSystem | null): void {
+    this.st = other ? other.st : { support: new Int32Array(0), relX: new Float64Array(0), relY: new Float64Array(0), order: [] };
+  }
+
+  /** match: is object i in a claw, or resting (directly or through a stack) on an object in a claw? */
+  restsOnHeld(i: number): boolean {
+    let k = i, guard = 0;
+    while (k >= 0 && guard++ <= this.support.length) {
+      const s = this.support[k];
+      if (s === HELD) return true;
+      k = s;
+    }
+    return false;
+  }
 
   // ------------------------------------------------------------ lifecycle
 
@@ -330,7 +353,7 @@ export class ArmSystem {
     const objs = s.objects;
     for (let i = 0; i < objs.length; i++) {
       const o = objs[i];
-      if (!o.pickable || i === e.carryIndex) continue;
+      if (!o.pickable || i === e.carryIndex || e.isForeign(i)) continue; // match: not from the other robot
       const dx = o.x - fx, dy = o.y - fy;
       const f = dx * ux + dy * uy;
       const l = -dx * uy + dy * ux;
@@ -393,7 +416,7 @@ export class ArmSystem {
     }
     const objs = s.objects;
     for (let j = 0; j < objs.length; j++) {
-      if (j === i || this.support[j] === HELD || j === e.carryIndex || this.ridesOn(j, i)) continue;
+      if (j === i || this.support[j] === HELD || j === e.carryIndex || e.isForeign(j) || this.ridesOn(j, i)) continue; // match
       const top = zOf(objs[j]) + objectHeight(objs[j]);
       if (top > surface && top <= bottom + REST_TOL && onFootprint(objs[j], o.x, o.y)) { surface = top; sup = j; }
     }

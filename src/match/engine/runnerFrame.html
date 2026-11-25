@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Robot Lab · match runner</title>
+<!--
+  match: a hidden, same-origin frame that holds its OWN copy of Skulpt, so two robots' Python programs
+  can run at the same time without sharing Skulpt's global state (see isolated.ts). Nothing else runs
+  here: the page that embeds this frame drives Skulpt directly. Built to dist/src/match/engine/ and
+  precached by the PWA service worker, so it works offline.
+-->
+<script src="../../../vendor/skulpt.bundle.js"></script>
+<script src="../../../vendor/skulpt-stdlib.js"></script>
+</head>
+<body></body>
+</html>

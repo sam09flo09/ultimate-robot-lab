@@ -1,7 +1,7 @@
 // Robot Lab blocks editor (Blockly 13). Public entry: createBlocksEditor(host, opts).
 import * as Blockly from "blockly";
 import type { BlocksEditor, BlocksOptions } from "../core/modules";
-import { HAT_TYPE, registerBlocks } from "./definitions";
+import { AUTO_HAT_TYPE, DRIVER_HAT_TYPE, HAT_TYPE, registerBlocks } from "./definitions";
 import { generateProgram, type GeneratedProgram } from "./generator";
 import { MEDIA_PATH } from "./media";
 import { RENDERER_OVERRIDES, robotLabTheme } from "./theme";
@@ -79,7 +79,7 @@ export function createBlocksEditor(host: HTMLElement, opts: BlocksOptions): Bloc
     trashcan: true,
     sounds: false,
     media: MEDIA_PATH,
-    maxInstances: { [HAT_TYPE]: 1 },
+    maxInstances: { [HAT_TYPE]: 1, [AUTO_HAT_TYPE]: 1, [DRIVER_HAT_TYPE]: 1 }, // match: one of each hat
     grid: { spacing: 32, length: 4, colour: "#E9E0D2", snap: true },
     zoom: { controls: true, wheel: true, startScale: 0.95, maxScale: 2.2, minScale: 0.45, scaleSpeed: 1.15, pinch: true },
     move: { scrollbars: true, drag: true, wheel: false },

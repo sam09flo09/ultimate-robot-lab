@@ -137,6 +137,35 @@ motor spin first, and `motor.spin` cancels an unfinished `drive(...)`/`turn(...)
 | L1 / L2, R1 / R2 | Q / Z, E / C |
 | Up / Down / Left / Right buttons | T / G / F / H |
 
+## Matches: competition(autonomous, driver_control)
+
+A match has two periods: **autonomous** (the robot runs on its own, 15 s in Silo Sprint) and
+**driver control** (a person drives, 60 s). A match program has one function for each and ends with
+`competition(...)` instead of `start(main)`:
+
+```python
+def autonomous():
+    drivetrain.drive_for(FORWARD, 600, MM)
+
+def driver_control():
+    while True:
+        left_motor.spin(FORWARD, controller.axis3.position(), PERCENT)
+        right_motor.spin(FORWARD, controller.axis2.position(), PERCENT)
+        wait(20, MSEC)
+
+competition(autonomous, driver_control)
+```
+
+| call | behaviour |
+|---|---|
+| `competition(autonomous, driver_control)` | normal Run: calls `autonomous()`, then `driver_control()`. In a match the referee's clock ends autonomous: the robot stops (`drivetrain.stop()`, arm stopped), `autonomous()` is interrupted at its next statement or command, and `driver_control()` starts. If `autonomous()` finishes early, the robot waits idle until the driver period. |
+
+Friendly errors: `competition(autonomous(), driver_control())` (no `()` after the names), missing or
+non-function values, using it twice, or together with `start(main)`.
+Blocks: the **when autonomous** and **when driver control** hats (Control category) generate the same
+program; blocks under **when started** run first as setup (`main()` is called before `competition`).
+Host side: `PythonRunner.nextPeriod()` ends autonomous (a no-op for programs that don't use competition).
+
 ## Robot builder (🔧 Robot)
 
 Students design their robot in the Robot Builder; the design (`RobotConfig`) is saved in the project
