@@ -345,6 +345,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
     hw: { pen?: boolean; magnet?: boolean },
     penDown: boolean, penColor: ColorName, bumper: boolean, carrying: boolean, px: number,
     cfg?: RobotConfig, stalled = false, // builder
+    tint: string | null = null, // match: team colour for the body (null = the usual robot)
   ) {
     const h = size / 2;
     const wl = wheelLength(size, cfg) / 2; // builder: wheel size (default = 0.32 × size)
@@ -369,7 +370,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
     }
     c.stroke();
     // body
-    c.fillStyle = INK;
+    c.fillStyle = tint ?? INK; // match: team-coloured shell
     roundRect(c, -h, -h, size, size, size * 0.18);
     c.fill();
     c.fillStyle = "#1F1C19";
@@ -388,7 +389,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
     roundRect(c, -bw / 2, -h - bh * 0.6, bw, bh, bh / 2);
     c.fill();
     // front arrow (as the original)
-    c.fillStyle = ORANGE;
+    c.fillStyle = tint ? "#FFFDF9" : ORANGE; // match: white arrow reads on any team colour
     c.beginPath();
     c.moveTo(0, -size * 0.4);
     c.lineTo(size * 0.24, -size * 0.02);
@@ -511,6 +512,100 @@ export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
     return false;
   }
 
+  // ------------------------------------------------------------ match: extra robots (team colours)
+
+  type Extra = NonNullable<RenderOptions["extraRobots"]>[number];
+
+  /** Is this object carried by an extra robot's magnet or held in its claw? (no allocation) */
+  function heldByExtra(extras: Extra[], id: string): boolean {
+    for (let i = 0; i < extras.length; i++) {
+      const st = extras[i].state;
+      if (st.carrying === id || (st.arm && st.arm.holding === id)) return true;
+    }
+    return false;
+  }
+  function extraClawId(extras: Extra[] | undefined): string | null {
+    if (!extras) return null;
+    for (let i = 0; i < extras.length; i++) { const a = extras[i].state.arm; if (a && a.holding) return a.holding; }
+    return null;
+  }
+  function findObject(objects: WorldObject[], id: string | null): WorldObject | null {
+    if (id === null) return null;
+    for (let i = 0; i < objects.length; i++) if (objects[i].id === id) return objects[i];
+    return null;
+  }
+
+  /** A round team badge ("A"/"B") just behind the robot, always upright. */
+  function drawTeamLabel(c: CanvasRenderingContext2D, x: number, y: number, size: number, label: string, color: string, px: number) {
+    const r = Math.max(9 * px, size * 0.17);
+    const cx = x, cy = -y - size * 0.62 - r * 0.4;
+    c.beginPath();
+    c.arc(cx, cy, r, 0, Math.PI * 2);
+    c.fillStyle = color;
+    c.fill();
+    c.lineWidth = 2 * px;
+    c.strokeStyle = "#FFFDF9";
+    c.stroke();
+    c.fillStyle = "#FFFDF9";
+    c.font = `700 ${r * 1.25}px ${MONO}`;
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillText(label, cx, cy + r * 0.06);
+  }
+
+  function drawExtraRobot(c: CanvasRenderingContext2D, ex: Extra, objects: WorldObject[], hw: { pen?: boolean; magnet?: boolean; arm?: boolean }, opts: RenderOptions, px: number) {
+    const st = ex.state;
+    const p = st.robot;
+    const size = st.robotSize > 0 ? st.robotSize : DEFAULT_ROBOT;
+    if (st.strokes.length) {
+      c.lineJoin = "round";
+      c.lineCap = "round";
+      for (let i = 0; i < st.strokes.length; i++) {
+        const sk = st.strokes[i];
+        if (!sk.points.length || sk.color === "NONE") continue;
+        c.strokeStyle = COLOR_HEX[sk.color];
+        c.fillStyle = c.strokeStyle;
+        c.lineWidth = sk.width > 0 ? sk.width : 8;
+        polyline(c, sk.points, c.lineWidth);
+      }
+    }
+    if (opts.showPath && st.path.length) {
+      c.globalAlpha = 0.55;
+      c.strokeStyle = ex.color;
+      c.lineWidth = Math.max(fieldW, fieldH) / 260;
+      c.lineJoin = "round";
+      c.lineCap = "round";
+      c.beginPath();
+      c.moveTo(st.path[0].x, -st.path[0].y);
+      for (let i = 1; i < st.path.length; i++) c.lineTo(st.path[i].x, -st.path[i].y);
+      c.lineTo(p.x, -p.y);
+      c.stroke();
+      c.globalAlpha = 1;
+    }
+    if (opts.showSensors && st.distanceRay) {
+      const r = st.distanceRay;
+      c.setLineDash(dashRay);
+      c.lineCap = "butt";
+      c.lineWidth = 1.5 * px;
+      c.strokeStyle = "rgba(47,111,214,0.55)";
+      c.beginPath();
+      c.moveTo(r.from.x, -r.from.y);
+      c.lineTo(r.to.x, -r.to.y);
+      c.stroke();
+      c.setLineDash(noDash);
+    }
+    const carried = findObject(objects, st.carrying);
+    drawRobot(c, p.x, p.y, p.heading, size, hw, st.penDown, st.penColor, st.bumperPressed, carried !== null, px, st.config, !!st.stalled, ex.color);
+    if (carried) drawCarried(c, carried, p.x, p.y, p.heading, size, px);
+    if (hw.arm) {
+      drawArm(c, p.x, p.y, p.heading, size, st.arm, "arm", px);
+      const held = findObject(objects, st.arm ? st.arm.holding : null);
+      if (held) drawHeld(c, held, px, drawObject);
+      drawArm(c, p.x, p.y, p.heading, size, st.arm, "jaws", px);
+    }
+    drawTeamLabel(c, p.x, p.y, size, ex.label, ex.color, px);
+  }
+
   function draw(world: World, state: SimState | null, opts: RenderOptions) {
     if (!sized) resize();
     if (world.width !== fieldW || world.height !== fieldH) {
@@ -574,10 +669,11 @@ export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
       const o = objects[i];
       if (carryingId !== null && o.id === carryingId) { carried = o; continue; }
       if (heldId !== null && o.id === heldId) { held = o; continue; }
+      if (opts.extraRobots && heldByExtra(opts.extraRobots, o.id)) continue; // match: drawn with its robot
       if (o.z && o.z > 0) continue;
       drawObject(c, o, px);
     }
-    drawRaisedObjects(c, objects, heldId, px, drawObject); // arm
+    drawRaisedObjects(c, objects, heldId ?? extraClawId(opts.extraRobots), px, drawObject); // arm (match: + robot B's claw)
 
     // distance ray
     if (opts.showSensors && state && state.distanceRay) {
@@ -606,11 +702,14 @@ export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
       }
     }
 
+    const extras = opts.extraRobots; // match: more robots on the same field
+    const tintMain = extras && extras.length && opts.mainRobotColor ? opts.mainRobotColor : null;
     drawRobot(
       c, robot.x, robot.y, robot.heading, size, hw,
       state ? state.penDown : false, state ? state.penColor : "BLACK",
       state ? state.bumperPressed : false, carried !== null, px,
       state?.config, !!state?.stalled, // builder
+      tintMain, // match
     );
     if (carried) drawCarried(c, carried, robot.x, robot.y, robot.heading, size, px);
     if (hw.arm) { // arm: the arm, what the claw holds, then the jaws on top
@@ -618,6 +717,10 @@ export function createRenderer(canvas: HTMLCanvasElement): RobotLabRenderer {
       drawArm(c, robot.x, robot.y, robot.heading, size, armState, "arm", px);
       if (held) drawHeld(c, held, px, drawObject);
       drawArm(c, robot.x, robot.y, robot.heading, size, armState, "jaws", px);
+    }
+    if (extras && extras.length) { // match
+      if (tintMain) drawTeamLabel(c, robot.x, robot.y, size, "A", tintMain, px);
+      for (let i = 0; i < extras.length; i++) drawExtraRobot(c, extras[i], objects, hw, opts, px);
     }
 
     // editor selection

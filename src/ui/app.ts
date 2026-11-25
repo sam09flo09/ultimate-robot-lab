@@ -40,6 +40,7 @@ import { DEFAULT_ROBOT, type RobotConfig } from "../core/types"; // builder
 import { clampConfig, sameConfig } from "../sim/robotConfig"; // builder
 import { createRobotBuilder } from "../builder"; // builder
 import { createFlowchartEditor, sanitizeChart, type FlowchartEditor } from "../flowchart"; // flowchart
+import { createMatchScreen, type MatchScreen } from "../match/ui"; // match
 
 type Mode = "blocks" | "python" | "flowchart"; // flowchart: third mode
 type MsgKind = "ok" | "info" | "err";
@@ -128,6 +129,7 @@ export function startApp(): void {
   let notebook: NotebookController | null = null; // notebook: engineering notebook page (src/notebook)
   let nbSteps = 0; // notebook: statements logged in the current run
   const previous = readAutosave(knownWorld); // last session's project, offered via "Restore last project"
+  let matchScreen: MatchScreen | null = null; // match: two-robot Match screen (src/match/ui)
 
   const renderer2d: Renderer = createRenderer(canvas);
   // 2D / 3D view: `view.renderer` is whichever one is on screen.
@@ -291,7 +293,7 @@ export function startApp(): void {
       }
       needDraw = true;
     }
-    if (needDraw && !document.hidden) {
+    if (needDraw && !document.hidden && !matchScreen?.isOpen /* match: the overlay draws its own field */) {
       needDraw = false;
       safe(() => view.renderer.draw(world, sim.state, { showPath: showPath.checked, showSensors: showSensors.checked, showZones: true, selectedId: null }));
     }
@@ -506,7 +508,7 @@ export function startApp(): void {
 
   // debugger: stepThrough starts paused; race: countdown:false skips 3-2-1-GO (so does stepping through)
   async function run(runOpts: { stepThrough?: boolean; countdown?: boolean } = {}): Promise<void> {
-    if (running || isDialogOpen() || notebook?.isOpen() /* notebook */ || isCatalogueOpen() || !$("teacher").hidden || grading?.busy) return; // grading: Skulpt is global
+    if (running || isDialogOpen() || notebook?.isOpen() /* notebook */ || isCatalogueOpen() || !$("teacher").hidden || grading?.busy || matchScreen?.isOpen /* match */) return; // grading: Skulpt is global
     if (typeof (window as unknown as { Sk?: unknown }).Sk === "undefined") {
       showMsg("err", "The Python engine did not load. Reload the page (it works offline once it has loaded one time).");
       return;
@@ -1321,9 +1323,33 @@ export function startApp(): void {
   $("mNotebook").addEventListener("click", () => notebook?.open());
   $("nbBtn").addEventListener("click", () => notebook?.open());
 
+  // ------------------------------------------------------------ match: two-robot matches (src/match/ui)
+  matchScreen = createMatchScreen({
+    projectName: () => projName.value,
+    programSource: () => programSource(),
+    robotConfig: () => ({ ...(sim.state.config ?? robotConfig) }),
+    is3D: () => view.is3D,
+    knownWorld,
+    newProjectFromTemplate: async (python: string) => {
+      const c = await ask("New match project", "<p>Start a <b>new project</b> with the match template? What's in the editor now will be replaced. Save first if you want to keep it.</p>",
+        [{ id: "cancel", label: "Cancel" }, { id: "ok", label: "Start new project", kind: "primary" }]);
+      if (c !== "ok") return false;
+      fileHandle = null;
+      loadProject({
+        format: "robot-lab-project", version: 1, name: "My match robot", mode: "python", python, blocks: null,
+        worldId, customWorld: worldId === "custom" ? customWorld : null, savedAt: new Date().toISOString(), robot: { ...robotConfig },
+      });
+      clearOutput(); clearMsg(); clearHighlights();
+      toast("New project with the match template is in the Python editor.", 4000);
+      return true;
+    },
+    onClose: () => { redraw(); requestAnimationFrame(fitCanvas); },
+  });
+  $("matchBtn").addEventListener("click", () => { if (running) stop(); matchScreen?.open(); });
+
   // ------------------------------------------------------------ keyboard
   document.addEventListener("keydown", (e) => {
-    if (e.defaultPrevented || isDialogOpen()) return;
+    if (e.defaultPrevented || isDialogOpen() || matchScreen?.isOpen /* match */) return;
     const mod = e.ctrlKey || e.metaKey;
     const inTeacher = !teacher.hidden;
     if (mod && e.key === "Enter" && !inTeacher) { e.preventDefault(); void run(); }
@@ -1383,5 +1409,6 @@ export function startApp(): void {
     controller: () => hub.read(), controllerUsed: () => onControllerUsed(),
     flowchart: { getState: () => flow.getState(), setState: (st: unknown) => flow.setState(st), python: () => flowPython(), error: () => flow.getError() }, // flowchart
     driving: () => ({ driverRun, speed: runSpeed(), sources: hub.sources(), touch: hub.touchShown, active: hub.active }),
+    match: { open: () => matchScreen?.open(), close: () => matchScreen?.close(), state: () => matchScreen?.debug() ?? null }, // match
   };
 }
